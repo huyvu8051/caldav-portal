@@ -43,57 +43,17 @@ fn client() -> reqwest::Client {
         .expect("reqwest client builds")
 }
 
-/// How many data sources this grant can see.
+/// What Notion duplicated, so the link can be named after it.
 ///
-/// Only ever used to explain an empty page list. Someone who shared a
-/// database instead of a page gets a picker with nothing in it, and "no pages
-/// found" is a true statement that answers none of their questions -- the
-/// useful sentence is "you shared 3 databases and no pages".
-pub async fn data_source_count(token: &str) -> Result<usize, Error> {
+/// `duplicated_template_id` is a **database** id -- established by asking,
+/// not by reading documentation: `/v1/databases/{id}` answers and
+/// `/v1/pages/{id}` returns `validation_error`. Which matters, because a page
+/// id would have meant searching inside it for the database.
+pub async fn duplicated_database(token: &str, database_id: &str) -> Result<Database, Error> {
     let res = client()
-        .post(format!("{API}/search"))
+        .get(format!("{API}/databases/{database_id}"))
         .bearer_auth(token)
         .header("Notion-Version", VERSION)
-        .json(&serde_json::json!({
-            "filter": { "value": "data_source", "property": "object" },
-            "page_size": 20,
-        }))
-        .send()
-        .await
-        .map_err(|e| Error::Other(e.to_string()))?;
-
-    if res.status() == reqwest::StatusCode::UNAUTHORIZED {
-        return Err(Error::Unauthorized);
-    }
-    if !res.status().is_success() {
-        // Not fatal: this only decorates an error message. Reporting zero is
-        // better than turning "no pages" into "something went wrong".
-        return Ok(0);
-    }
-    let body: SearchResponse = res
-        .json()
-        .await
-        .map_err(|_| Error::Other("search".into()))?;
-    Ok(body.results.len())
-}
-
-/// Pages this grant can see, newest first, for the "where should the calendar
-/// live" picker.
-///
-/// Only pages, never databases: the bridge creates its own database from a
-/// fixed template so the columns are addressed by id and survive renaming.
-/// Letting someone point at an existing database would mean guessing which
-/// of its columns is the date.
-pub async fn pages(token: &str) -> Result<Vec<Page>, Error> {
-    let res = client()
-        .post(format!("{API}/search"))
-        .bearer_auth(token)
-        .header("Notion-Version", VERSION)
-        .json(&serde_json::json!({
-            "filter": { "value": "page", "property": "object" },
-            "sort": { "direction": "descending", "timestamp": "last_edited_time" },
-            "page_size": 50,
-        }))
         .send()
         .await
         .map_err(|e| Error::Other(e.to_string()))?;
@@ -104,105 +64,43 @@ pub async fn pages(token: &str) -> Result<Vec<Page>, Error> {
     if !res.status().is_success() {
         let status = res.status();
         let body = res.text().await.unwrap_or_default();
-        return Err(Error::Other(format!("search: HTTP {status}: {body}")));
+        return Err(Error::Other(format!("database: HTTP {status}: {body}")));
     }
 
-    let body: SearchResponse = res
+    let body: DatabaseResponse = res
         .json()
         .await
-        .map_err(|e| Error::Other(format!("search response: {e}")))?;
+        .map_err(|e| Error::Other(format!("database response: {e}")))?;
 
-    Ok(body
-        .results
-        .into_iter()
-        .filter(|r| !r.archived && !r.in_trash)
-        .map(|r| {
-            let title = title_of(&r).unwrap_or_else(|| "Untitled".to_string());
-            Page { id: r.id, title }
-        })
-        .collect())
+    let title: String = body
+        .title
+        .iter()
+        .filter_map(|t| t.plain_text.as_deref())
+        .collect();
+    Ok(Database {
+        id: database_id.to_string(),
+        title: if title.trim().is_empty() {
+            "Notion calendar".to_string()
+        } else {
+            title
+        },
+    })
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Database {
+    pub id: String,
+    pub title: String,
 }
 
 #[derive(Deserialize)]
-struct SearchResponse {
-    results: Vec<SearchResult>,
+struct DatabaseResponse {
+    #[serde(default)]
+    title: Vec<RichText>,
 }
 
 #[derive(Deserialize)]
-struct SearchResult {
-    id: String,
+struct RichText {
     #[serde(default)]
-    archived: bool,
-    #[serde(default)]
-    in_trash: bool,
-    #[serde(default)]
-    properties: serde_json::Value,
-}
-
-/// A page's title lives under whichever property has `type: "title"`, and
-/// that property's name is whatever the user called it. Finding it by type
-/// rather than by the name "Name" is the difference between working for
-/// everyone and working for people whose workspace is in English.
-fn title_of(r: &SearchResult) -> Option<String> {
-    let props = r.properties.as_object()?;
-    for (_, value) in props {
-        if value.get("type").and_then(|t| t.as_str()) != Some("title") {
-            continue;
-        }
-        let parts = value.get("title")?.as_array()?;
-        let text: String = parts
-            .iter()
-            .filter_map(|p| p.get("plain_text").and_then(|t| t.as_str()))
-            .collect();
-        if !text.trim().is_empty() {
-            return Some(text);
-        }
-    }
-    None
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn result(props: serde_json::Value) -> SearchResult {
-        SearchResult {
-            id: "p1".into(),
-            archived: false,
-            in_trash: false,
-            properties: props,
-        }
-    }
-
-    #[test]
-    fn the_title_is_found_by_type_not_by_name() {
-        // A workspace in Vietnamese calls it "Tên", not "Name". Matching on
-        // the name would show every page in such a workspace as Untitled.
-        let r = result(serde_json::json!({
-            "Tên": { "type": "title", "title": [{ "plain_text": "Lịch của tôi" }] },
-            "Ghi chú": { "type": "rich_text", "rich_text": [] }
-        }));
-        assert_eq!(title_of(&r).as_deref(), Some("Lịch của tôi"));
-    }
-
-    #[test]
-    fn a_title_split_across_rich_text_runs_is_joined() {
-        // Notion splits a title at every formatting change, so a page called
-        // "Work calendar" with one bold word arrives as three runs.
-        let r = result(serde_json::json!({
-            "Name": { "type": "title", "title": [
-                { "plain_text": "Work " },
-                { "plain_text": "calendar" }
-            ]}
-        }));
-        assert_eq!(title_of(&r).as_deref(), Some("Work calendar"));
-    }
-
-    #[test]
-    fn an_empty_title_is_not_a_title() {
-        let r = result(serde_json::json!({
-            "Name": { "type": "title", "title": [] }
-        }));
-        assert_eq!(title_of(&r), None);
-    }
+    plain_text: Option<String>,
 }

@@ -23,7 +23,6 @@ pub struct CalendarLink {
     /// The collection path. Shown to the user as a full URL, because some
     /// clients cannot discover a calendar and have to be handed one.
     pub calendar_uri: String,
-    pub notion_parent_page: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -72,6 +71,8 @@ impl Db {
             include_str!("../migrations/0003_links.sql"),
             "\n",
             include_str!("../migrations/0004_logout.sql"),
+            "\n",
+            include_str!("../migrations/0005_duplicated.sql"),
         ))
         .execute(&mut *tx)
         .await?;
@@ -227,17 +228,23 @@ impl Db {
     /// from both creating a calendar for the same page, and a database is
     /// the only thing that can decide that. `ON CONFLICT DO NOTHING` makes
     /// "already linked" a value rather than an error to parse.
+    /// Reserves a link for a database Notion duplicated.
+    ///
+    /// `ON CONFLICT DO NOTHING` against the unique index on
+    /// `(account_id, notion_database_id)`, so a replayed callback -- a
+    /// refresh, a double-tap -- finds the link already there instead of
+    /// making a second calendar for the same database.
     pub async fn claim_link(
         &self,
         account_id: i64,
         connection_id: i64,
-        parent_page: &str,
+        database_id: &str,
         display_name: &str,
         calendar_uri: &str,
     ) -> Result<Option<i64>> {
         let row = sqlx::query(
             "INSERT INTO calendar_link
-               (account_id, notion_connection_id, notion_parent_page, display_name,
+               (account_id, notion_connection_id, notion_database_id, display_name,
                 caldav_calendar_uri)
              VALUES ($1, $2, $3, $4, $5)
              ON CONFLICT DO NOTHING
@@ -245,7 +252,7 @@ impl Db {
         )
         .bind(account_id)
         .bind(connection_id)
-        .bind(parent_page)
+        .bind(database_id)
         .bind(display_name)
         .bind(calendar_uri)
         .fetch_optional(&self.pool)
@@ -269,7 +276,7 @@ impl Db {
 
     pub async fn links(&self, account_id: i64) -> Result<Vec<CalendarLink>> {
         let rows = sqlx::query(
-            "SELECT id, display_name, caldav_calendar_uri, notion_parent_page
+            "SELECT id, display_name, caldav_calendar_uri
              FROM calendar_link WHERE account_id = $1 ORDER BY created_at",
         )
         .bind(account_id)
@@ -281,7 +288,6 @@ impl Db {
                 id: r.get("id"),
                 display_name: r.get("display_name"),
                 calendar_uri: r.get("caldav_calendar_uri"),
-                notion_parent_page: r.get("notion_parent_page"),
             })
             .collect())
     }

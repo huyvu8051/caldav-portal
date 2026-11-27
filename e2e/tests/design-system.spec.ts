@@ -16,7 +16,7 @@ import { test, expect, Page } from '@playwright/test'
 // which is the point: a page that is not in this list is a page the design
 // system does not hold for -- and for a while this list was just '/', so
 // four pages were unguarded.
-const PAGES = ['/', '/privacy', '/terms', '/me', '/add', '/connect']
+const PAGES = ['/', '/privacy', '/terms', '/me']
 
 async function visit(page: Page, url: string) {
   await page.goto(url)

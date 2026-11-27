@@ -206,7 +206,7 @@ pub async fn notion_callback(
         "notion grant"
     );
 
-    if let Err(e) = server
+    let connection_id = match server
         .db
         .put_notion_connection(
             account_id,
@@ -217,8 +217,151 @@ pub async fn notion_callback(
         )
         .await
     {
-        tracing::error!(error = %e, "could not record the notion connection");
-        return Redirect::to("/me?notion=db").into_response();
+        Ok(id) => id,
+        Err(e) => {
+            tracing::error!(error = %e, "could not record the notion connection");
+            return Redirect::to("/me?notion=db").into_response();
+        }
+    };
+    // The calendar, right here, while the person is still looking at the
+    // screen that started it. The picker is gone: Notion has already created
+    // the database, so there is nothing left to choose and no minute-long
+    // window where this has reported success and no database exists.
+    match link_duplicated(&server, account_id, connection_id, &grant).await {
+        Ok(true) => Redirect::to("/me?notion=connected").into_response(),
+        // They pressed "select existing pages" rather than duplicating, so
+        // no database came back. Nothing is broken; there is simply nothing
+        // to link, and /me says so.
+        Ok(false) => Redirect::to("/me?notion=no-template").into_response(),
+        Err(e) => {
+            tracing::error!(error = %e, "could not create the calendar for the duplicated database");
+            Redirect::to("/me?notion=calendar").into_response()
+        }
     }
-    Redirect::to("/me?notion=connected").into_response()
+}
+
+/// Turns the duplicated database into a calendar and a link.
+///
+/// `Ok(false)` means Notion duplicated nothing, which is a choice the user
+/// made on the consent screen rather than a failure.
+async fn link_duplicated(
+    server: &ServerState,
+    account_id: i64,
+    connection_id: i64,
+    grant: &crate::notion_oauth::Grant,
+) -> Result<bool, String> {
+    let Some(database_id) = grant.duplicated_template_id.as_deref() else {
+        return Ok(false);
+    };
+
+    let account = server
+        .db
+        .account(account_id)
+        .await
+        .map_err(|e| e.to_string())?
+        .ok_or("account vanished")?;
+    let (Some(username), Some(password)) = (account.caldav_username, account.caldav_password)
+    else {
+        // Only reachable by connecting Notion before ever opening /me, which
+        // provisions. Worth a message rather than a panic.
+        return Err("no CalDAV credential yet".into());
+    };
+
+    let db = crate::notion_api::duplicated_database(&grant.access_token, database_id)
+        .await
+        .map_err(|e| e.to_string())?;
+
+    let slug = format!(
+        "notion-{}",
+        database_id
+            .chars()
+            .filter(|c| c.is_ascii_alphanumeric())
+            .take(12)
+            .collect::<String>()
+            .to_lowercase()
+    );
+    let collection = format!("/calendars/{username}/{slug}/");
+
+    // Claim first, create second -- the database decides a race, and the
+    // unique index on (account, database) makes a replayed callback find the
+    // link already there instead of making a second calendar.
+    let Some(link_id) = server
+        .db
+        .claim_link(
+            account_id,
+            connection_id,
+            database_id,
+            &db.title,
+            &collection,
+        )
+        .await
+        .map_err(|e| e.to_string())?
+    else {
+        return Ok(true);
+    };
+
+    let client = crate::caldav_client::CaldavClient::new(&server.caldav_public_url);
+    let outcome = client
+        .make_calendar(&username, &password, &collection, &db.title)
+        .await;
+
+    match decide(outcome) {
+        Decision::Keep => Ok(true),
+        Decision::Release(message) => {
+            // Released, or the row survives pointing at a collection that
+            // does not exist and the unique index refuses every retry.
+            let _ = server.db.release_link(link_id).await;
+            Err(message)
+        }
+    }
+}
+
+/// What to do with a claimed link once MKCALENDAR has answered.
+#[derive(Debug, PartialEq, Eq)]
+pub enum Decision {
+    /// The collection exists and belongs to this link.
+    Keep,
+    /// It does not, so the claim has to go back.
+    Release(String),
+}
+
+/// Split out from `link_duplicated` so it can be tested.
+///
+/// This exact branch was inline once before, and deleting the release call
+/// left every test green -- the tests exercised claim/release at the database
+/// level and never the caller. It is the difference between "try again" and
+/// "this database can never be linked", so it is worth a seam.
+pub fn decide(outcome: Result<(), crate::caldav_client::Error>) -> Decision {
+    match outcome {
+        Ok(()) => Decision::Keep,
+        // Already there from an earlier attempt that failed after
+        // MKCALENDAR. It is the collection this link wants; releasing would
+        // strand it with no link naming it, and the next attempt would make
+        // a second one.
+        Err(crate::caldav_client::Error::AlreadyExists) => Decision::Keep,
+        Err(e) => Decision::Release(format!("could not create calendar: {e}")),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::caldav_client::Error;
+
+    #[test]
+    fn a_created_calendar_keeps_its_claim() {
+        assert_eq!(decide(Ok(())), Decision::Keep);
+    }
+
+    #[test]
+    fn an_existing_calendar_keeps_its_claim() {
+        assert_eq!(decide(Err(Error::AlreadyExists)), Decision::Keep);
+    }
+
+    #[test]
+    fn every_other_failure_releases_the_claim() {
+        for e in [Error::Unauthorized, Error::Other("refused".into())] {
+            assert!(matches!(decide(Err(e)), Decision::Release(_)));
+        }
+    }
 }

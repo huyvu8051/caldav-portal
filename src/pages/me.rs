@@ -343,11 +343,8 @@ fn CredentialCard(
         <LinkList
             links=Signal::derive(move || credentials.get().links)
             base=Signal::derive(move || credentials.get().server)
-            // The one button on this page goes wherever the next step
-            // actually is. It used to be two -- "Add a calendar" beside
-            // "Connect Notion" -- which put the prerequisite next to the goal
-            // and made the reader choose between them. notion-caldav-saas has
-            // one button, "Connect another database", and is right.
+            // Unused distinction now: connecting *is* adding. Kept as a
+            // signal only so the empty-state wording can differ.
             needs_notion=Signal::derive(move || {
                 !credentials.get().workspaces.iter().any(|w| !w.needs_reconnect)
             })
@@ -399,15 +396,14 @@ fn NotionSection(#[prop(into)] workspaces: Signal<Vec<Workspace>>) -> impl IntoV
 
             <Show when=move || broken.get()>
                 <div class="mt-4">
-                    <A
-                        href="/connect"
-                        attr:data-testid="reconnect-notion"
-                        attr:role="button"
-                        attr:class="w-full h-12 inline-flex items-center justify-center rounded-full
-                                    bg-canvas border border-hairline text-action text-body no-underline"
-                    >
-                        "Reconnect Notion"
-                    </A>
+                    <ServerLink
+                        href="/notion/connect"
+                        label="Reconnect Notion"
+                        testid="reconnect-notion"
+                        button=true
+                        class="w-full h-12 inline-flex items-center justify-center rounded-full
+                               bg-canvas border border-hairline text-action text-body no-underline"
+                    />
                 </div>
             </Show>
         </Show>
@@ -434,7 +430,7 @@ fn LinkList(
                     {move || if needs_notion.get() {
                         "No calendars yet. Connect Notion to get started."
                     } else {
-                        "No calendars yet."
+                        "No calendars yet. Add one and Notion will create the database."
                     }}
                 </p>
             }
@@ -455,14 +451,16 @@ fn LinkList(
                 </For>
             </div>
         </Show>
-        <A
-            href=move || if needs_notion.get() { "/connect".to_string() } else { "/add".to_string() }
-            attr:data-testid="add-calendar"
-            attr:role="button"
-            attr:class="w-full h-12 inline-flex items-center justify-center rounded-full
-                        bg-action text-canvas text-body font-semibold no-underline"
-        >
-            "Add a calendar"
-        </A>
+        // Straight to Notion. There is no page to pick and no screen in
+        // between: Notion duplicates the calendar database during consent,
+        // and the calendar exists by the time the browser comes back.
+        <ServerLink
+            href="/notion/connect"
+            label="Add a calendar"
+            testid="add-calendar"
+            button=true
+            class="w-full h-12 inline-flex items-center justify-center rounded-full
+                   bg-action text-canvas text-body font-semibold no-underline"
+        />
     }
 }
