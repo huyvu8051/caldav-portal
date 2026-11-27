@@ -78,6 +78,8 @@ impl Db {
             include_str!("../migrations/0005_duplicated.sql"),
             "\n",
             include_str!("../migrations/0006_cleanup.sql"),
+            "\n",
+            include_str!("../migrations/0007_intent.sql"),
         ))
         .execute(&mut *tx)
         .await?;
@@ -300,10 +302,16 @@ impl Db {
 
     // ---- Notion connections ----
 
-    pub async fn start_notion_flow(&self, state: &str, account_id: i64) -> Result<()> {
-        sqlx::query("INSERT INTO notion_flow (state, account_id) VALUES ($1, $2)")
+    pub async fn start_notion_flow(
+        &self,
+        state: &str,
+        account_id: i64,
+        intent: &str,
+    ) -> Result<()> {
+        sqlx::query("INSERT INTO notion_flow (state, account_id, intent) VALUES ($1, $2, $3)")
             .bind(state)
             .bind(account_id)
+            .bind(intent)
             .execute(&self.pool)
             .await?;
         Ok(())
@@ -311,16 +319,16 @@ impl Db {
 
     /// Consumes the flow, like `finish_login`: a replayed callback must find
     /// nothing rather than attach a second grant.
-    pub async fn finish_notion_flow(&self, state: &str) -> Result<Option<i64>> {
+    pub async fn finish_notion_flow(&self, state: &str) -> Result<Option<(i64, String)>> {
         let row = sqlx::query(
             "DELETE FROM notion_flow
              WHERE state = $1 AND created_at > now() - interval '10 minutes'
-             RETURNING account_id",
+             RETURNING account_id, intent",
         )
         .bind(state)
         .fetch_optional(&self.pool)
         .await?;
-        Ok(row.map(|r| r.get("account_id")))
+        Ok(row.map(|r| (r.get("account_id"), r.get("intent"))))
     }
 
     /// Records a grant, replacing any previous one for the same workspace.

@@ -211,9 +211,12 @@ async fn a_notion_flow_can_only_be_finished_once() {
     let db = db().await;
     let id = db.upsert_account(&sub(), "a@example.com").await.unwrap();
     let state = caldav_portal::oidc::random_token();
-    db.start_notion_flow(&state, id).await.unwrap();
+    db.start_notion_flow(&state, id, "add").await.unwrap();
 
-    assert_eq!(db.finish_notion_flow(&state).await.unwrap(), Some(id));
+    assert_eq!(
+        db.finish_notion_flow(&state).await.unwrap(),
+        Some((id, "add".to_string()))
+    );
     assert_eq!(
         db.finish_notion_flow(&state).await.unwrap(),
         None,
@@ -412,5 +415,30 @@ async fn the_id_token_is_kept_for_logout_and_dies_with_the_session() {
         db.session_id_token(&sid).await.unwrap(),
         None,
         "it is a credential; it must not outlive the session row"
+    );
+}
+
+#[tokio::test]
+async fn a_reconnect_flow_is_remembered_as_one() {
+    // "Add a calendar" and "Reconnect" are the same OAuth round trip, and
+    // Notion duplicates the template on both -- so without the intent coming
+    // back, repairing a dead connection would silently add a second
+    // calendar. Fixing something would grow the list.
+    let db = db().await;
+    let id = db.upsert_account(&sub(), "a@example.com").await.unwrap();
+
+    let add = caldav_portal::oidc::random_token();
+    let again = caldav_portal::oidc::random_token();
+    db.start_notion_flow(&add, id, "add").await.unwrap();
+    db.start_notion_flow(&again, id, "reconnect").await.unwrap();
+
+    assert_eq!(
+        db.finish_notion_flow(&add).await.unwrap(),
+        Some((id, "add".to_string()))
+    );
+    assert_eq!(
+        db.finish_notion_flow(&again).await.unwrap(),
+        Some((id, "reconnect".to_string())),
+        "the callback has to know which button was pressed"
     );
 }

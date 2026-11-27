@@ -146,14 +146,34 @@ async fn account_of(server: &ServerState, jar: &CookieJar) -> Option<i64> {
         .flatten()
 }
 
-pub async fn notion_connect(Extension(server): Extension<ServerState>, jar: CookieJar) -> Response {
+#[derive(Deserialize)]
+pub struct ConnectQuery {
+    /// `reconnect` replaces a dead token and must not create a calendar.
+    /// Anything else, including absent, means "add a calendar".
+    #[serde(default)]
+    intent: Option<String>,
+}
+
+pub async fn notion_connect(
+    Extension(server): Extension<ServerState>,
+    jar: CookieJar,
+    Query(q): Query<ConnectQuery>,
+) -> Response {
     let Some(account_id) = account_of(&server, &jar).await else {
         // Not an error page: someone whose session expired while the tab was
         // open should land on sign-in, not on an explanation.
         return Redirect::to("/signin").into_response();
     };
+    let intent = match q.intent.as_deref() {
+        Some("reconnect") => "reconnect",
+        _ => "add",
+    };
     let state = crate::oidc::random_token();
-    if let Err(e) = server.db.start_notion_flow(&state, account_id).await {
+    if let Err(e) = server
+        .db
+        .start_notion_flow(&state, account_id, intent)
+        .await
+    {
         tracing::error!(error = %e, "could not record the notion flow");
         return Redirect::to("/me?error=db").into_response();
     }
@@ -184,7 +204,7 @@ pub async fn notion_callback(
     // Consumed before the exchange, so a replayed callback cannot attach a
     // second grant. This is also what ties the grant to the account that
     // started the flow rather than to whoever happens to be holding a cookie.
-    let Ok(Some(account_id)) = server.db.finish_notion_flow(&state).await else {
+    let Ok(Some((account_id, intent))) = server.db.finish_notion_flow(&state).await else {
         tracing::warn!("notion callback with an unknown or expired state");
         return Redirect::to("/me?notion=expired").into_response();
     };
@@ -227,6 +247,10 @@ pub async fn notion_callback(
     // screen that started it. The picker is gone: Notion has already created
     // the database, so there is nothing left to choose and no minute-long
     // window where this has reported success and no database exists.
+    if !creates_a_calendar(&intent) {
+        return Redirect::to("/me?notion=reconnected").into_response();
+    }
+
     match link_duplicated(&server, account_id, connection_id, &grant).await {
         Ok(true) => Redirect::to("/me?notion=connected").into_response(),
         // They pressed "select existing pages" rather than duplicating, so
@@ -237,6 +261,47 @@ pub async fn notion_callback(
             tracing::error!(error = %e, "could not create the calendar for the duplicated database");
             Redirect::to("/me?notion=calendar").into_response()
         }
+    }
+}
+
+/// Whether this round trip should end in a new calendar.
+///
+/// A reconnect has already done its job by the time this is asked:
+/// `put_notion_connection` replaced the token and cleared
+/// `token_invalid_since`. Creating a calendar as well would mean that fixing
+/// a connection grows the list -- Notion duplicates the template on every
+/// consent and hands back a fresh database id, so there is nothing about the
+/// grant itself that says "this one is a repair".
+///
+/// A function rather than an `if`, because the `if` version could be deleted
+/// without turning a single test red. That has now happened three times in
+/// this repo, always the same way: the tests covered what was stored and not
+/// what was decided.
+fn creates_a_calendar(intent: &str) -> bool {
+    intent != "reconnect"
+}
+
+#[cfg(test)]
+mod intent_tests {
+    use super::creates_a_calendar;
+
+    #[test]
+    fn a_reconnect_does_not_create_a_calendar() {
+        assert!(!creates_a_calendar("reconnect"));
+    }
+
+    #[test]
+    fn adding_does() {
+        assert!(creates_a_calendar("add"));
+    }
+
+    #[test]
+    fn anything_unrecognised_adds() {
+        // The column is defaulted and old rows read as "add"; an unknown
+        // value should behave like the common case rather than silently
+        // doing nothing.
+        assert!(creates_a_calendar(""));
+        assert!(creates_a_calendar("something-else"));
     }
 }
 
@@ -267,9 +332,17 @@ async fn link_duplicated(
         return Err("no CalDAV credential yet".into());
     };
 
-    let db = crate::notion_api::duplicated_database(&grant.access_token, database_id)
-        .await
-        .map_err(|e| e.to_string())?;
+    let db = match crate::notion_api::duplicated_database(&grant.access_token, database_id).await {
+        Ok(db) => db,
+        // Vanishingly unlikely on a token issued seconds ago, but this is
+        // the portal's only call to Notion, so it is the portal's only
+        // chance to record a refusal.
+        Err(crate::notion_api::Error::Unauthorized) => {
+            let _ = server.db.mark_notion_invalid(connection_id).await;
+            return Err("Notion refused the connection".into());
+        }
+        Err(e) => return Err(e.to_string()),
+    };
 
     let slug = format!(
         "notion-{}",

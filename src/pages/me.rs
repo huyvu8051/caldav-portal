@@ -341,7 +341,7 @@ fn CredentialCard(
                     "Notion refused a connection. Calendars under it have stopped syncing."
                 </p>
                 <ServerLink
-                    href="/notion/connect"
+                    href="/notion/connect?intent=reconnect"
                     label="Reconnect Notion"
                     testid="reconnect-notion"
                     button=true
