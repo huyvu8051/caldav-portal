@@ -54,6 +54,17 @@ async fn main() -> anyhow::Result<()> {
         &format!("{}/callback", base_url.trim_end_matches('/')),
     )
     .await?;
+    let notion = caldav_portal::notion_oauth::NotionOauth::new(
+        env::var("NOTION_CLIENT_ID").map_err(|_| anyhow::anyhow!("NOTION_CLIENT_ID is not set"))?,
+        env::var("NOTION_CLIENT_SECRET")
+            .map_err(|_| anyhow::anyhow!("NOTION_CLIENT_SECRET is not set"))?,
+        // Not derived from PORTAL_BASE_URL: Notion matches the redirect
+        // against its registered list byte for byte, and the registered one
+        // is `http://localhost:8091/...` while the base URL a phone uses is
+        // not. One is what Notion must see; the other is where people browse.
+        env::var("NOTION_REDIRECT_URI")
+            .map_err(|_| anyhow::anyhow!("NOTION_REDIRECT_URI is not set"))?,
+    );
     let caldav = caldav_portal::caldav_admin::CaldavAdmin::new(
         &env::var("CALDAV_ADMIN_URL")
             .map_err(|_| anyhow::anyhow!("CALDAV_ADMIN_URL is not set"))?,
@@ -64,6 +75,7 @@ async fn main() -> anyhow::Result<()> {
         db,
         oidc,
         caldav,
+        notion,
         caldav_public_url: env::var("CALDAV_PUBLIC_URL")
             .map_err(|_| anyhow::anyhow!("CALDAV_PUBLIC_URL is not set (what a phone types in)"))?,
         // Driven by the origin rather than guessed: marking the cookie Secure
@@ -88,6 +100,14 @@ async fn main() -> anyhow::Result<()> {
         .route(
             "/signout",
             axum::routing::get(caldav_portal::routes::signout),
+        )
+        .route(
+            "/notion/connect",
+            axum::routing::get(caldav_portal::routes::notion_connect),
+        )
+        .route(
+            "/notion/callback",
+            axum::routing::get(caldav_portal::routes::notion_callback),
         )
         .leptos_routes(&leptos_options, routes, {
             let options = leptos_options.clone();

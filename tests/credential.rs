@@ -151,3 +151,91 @@ fn session_ids_do_not_repeat() {
         .collect();
     assert_eq!(seen.len(), 1000);
 }
+
+#[tokio::test]
+async fn reconnecting_clears_the_invalid_mark() {
+    // This is the repair path. A user whose Notion token was revoked fixes it
+    // by reconnecting, so the upsert has to clear `token_invalid_since` --
+    // otherwise a successful reconnect is indistinguishable from the broken
+    // state it was meant to fix, and the sync loop keeps skipping the link.
+    let db = db().await;
+    let id = db.upsert_account(&sub(), "a@example.com").await.unwrap();
+    let ws = username();
+
+    let conn = db
+        .put_notion_connection(id, "tok-1", &ws, "Workspace", "bot")
+        .await
+        .unwrap();
+    db.mark_notion_invalid(conn).await.unwrap();
+    assert!(
+        db.notion_connections(id).await.unwrap()[0]
+            .token_invalid_since
+            .is_some(),
+        "the mark must be set before the repair is meaningful"
+    );
+
+    let again = db
+        .put_notion_connection(id, "tok-2", &ws, "Workspace", "bot")
+        .await
+        .unwrap();
+    assert_eq!(again, conn, "reconnecting the same workspace replaces it");
+    let rows = db.notion_connections(id).await.unwrap();
+    assert_eq!(rows.len(), 1, "no duplicate row per workspace");
+    assert!(
+        rows[0].token_invalid_since.is_none(),
+        "the mark must be cleared"
+    );
+}
+
+#[tokio::test]
+async fn marking_invalid_records_when_it_first_failed() {
+    // Not when it was last retried. A loop that re-marks on every tick would
+    // make "your calendar has been stale since" always read as "just now".
+    let db = db().await;
+    let id = db.upsert_account(&sub(), "a@example.com").await.unwrap();
+    let conn = db
+        .put_notion_connection(id, "tok", &username(), "W", "b")
+        .await
+        .unwrap();
+
+    db.mark_notion_invalid(conn).await.unwrap();
+    let first = db.notion_connections(id).await.unwrap()[0].token_invalid_since;
+    db.mark_notion_invalid(conn).await.unwrap();
+    let second = db.notion_connections(id).await.unwrap()[0].token_invalid_since;
+
+    assert_eq!(first, second, "the timestamp must not move on a retry");
+}
+
+#[tokio::test]
+async fn a_notion_flow_can_only_be_finished_once() {
+    let db = db().await;
+    let id = db.upsert_account(&sub(), "a@example.com").await.unwrap();
+    let state = caldav_portal::oidc::random_token();
+    db.start_notion_flow(&state, id).await.unwrap();
+
+    assert_eq!(db.finish_notion_flow(&state).await.unwrap(), Some(id));
+    assert_eq!(
+        db.finish_notion_flow(&state).await.unwrap(),
+        None,
+        "a replayed callback must not attach a second grant"
+    );
+}
+
+#[tokio::test]
+async fn one_account_cannot_delete_another_accounts_connection() {
+    let db = db().await;
+    let mine = db.upsert_account(&sub(), "a@example.com").await.unwrap();
+    let theirs = db.upsert_account(&sub(), "b@example.com").await.unwrap();
+    let conn = db
+        .put_notion_connection(theirs, "tok", &username(), "W", "b")
+        .await
+        .unwrap();
+
+    // Scoped by account in the WHERE clause, not just by id: an id alone is
+    // guessable and would be enough.
+    db.delete_notion_connection(mine, conn).await.unwrap();
+    assert_eq!(db.notion_connections(theirs).await.unwrap().len(), 1);
+
+    db.delete_notion_connection(theirs, conn).await.unwrap();
+    assert_eq!(db.notion_connections(theirs).await.unwrap().len(), 0);
+}

@@ -5,11 +5,22 @@ use leptos::prelude::*;
 use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct Workspace {
+    pub id: i64,
+    pub name: String,
+    /// `true` when Notion has refused this token. Shown rather than hidden:
+    /// a calendar that silently stopped updating is the failure this whole
+    /// field exists to prevent.
+    pub needs_reconnect: bool,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Credentials {
     pub email: String,
     pub server: String,
     pub username: String,
     pub password: String,
+    pub workspaces: Vec<Workspace>,
 }
 
 /// Everything the server knows about the signed-in person, provisioning the
@@ -39,6 +50,7 @@ pub async fn my_credentials() -> Result<Option<Credentials>, ServerFnError> {
             server: server.caldav_public_url.clone(),
             username: u.clone(),
             password: p.clone(),
+            workspaces: workspaces(&server, account_id).await?,
         }));
     }
 
@@ -71,6 +83,7 @@ pub async fn my_credentials() -> Result<Option<Credentials>, ServerFnError> {
             server: server.caldav_public_url.clone(),
             username: again.caldav_username.unwrap_or_default(),
             password: again.caldav_password.unwrap_or_default(),
+            workspaces: workspaces(&server, account_id).await?,
         }));
     }
 
@@ -99,7 +112,35 @@ pub async fn my_credentials() -> Result<Option<Credentials>, ServerFnError> {
         server: server.caldav_public_url.clone(),
         username,
         password,
+        workspaces: workspaces(&server, account_id).await?,
     }))
+}
+
+/// The Notion workspaces this account has connected.
+#[cfg(feature = "ssr")]
+async fn workspaces(
+    server: &crate::state::ServerState,
+    account_id: i64,
+) -> Result<Vec<Workspace>, ServerFnError> {
+    let rows = server
+        .db
+        .notion_connections(account_id)
+        .await
+        .map_err(|e| ServerFnError::new(format!("could not list connections: {e}")))?;
+    Ok(rows
+        .into_iter()
+        .map(|c| Workspace {
+            id: c.id,
+            // Notion omits the name for some grants; the id is never a good
+            // thing to show a person, but it beats an empty row.
+            name: if c.workspace_name.is_empty() {
+                c.workspace_id
+            } else {
+                c.workspace_name
+            },
+            needs_reconnect: c.token_invalid_since.is_some(),
+        })
+        .collect())
 }
 
 /// Issue a new password, in caldav-rs first.
@@ -140,6 +181,7 @@ pub async fn rotate_password() -> Result<Credentials, ServerFnError> {
         server: server.caldav_public_url.clone(),
         username,
         password,
+        workspaces: workspaces(&server, account_id).await?,
     })
 }
 
@@ -258,6 +300,9 @@ fn CredentialCard(
             </p>
         </div>
 
+        <h2 class="text-tagline font-semibold mt-10 mb-2">"Notion"</h2>
+        <NotionSection workspaces=Signal::derive(move || credentials.get().workspaces)/>
+
         <div class="mt-8">
             <a
                 href="/signout"
@@ -283,5 +328,60 @@ fn Row(
             // and giving the whole page a horizontal scrollbar on a phone.
             <div data-testid=testid class="text-body break-all">{move || value.get()}</div>
         </div>
+    }
+}
+
+#[component]
+fn NotionSection(#[prop(into)] workspaces: Signal<Vec<Workspace>>) -> impl IntoView {
+    view! {
+        <Show
+            when=move || !workspaces.get().is_empty()
+            fallback=|| {
+                view! {
+                    <p class="text-body text-ink-48 mb-4">
+                        "No workspace connected yet."
+                    </p>
+                    <ConnectButton label="Connect Notion"/>
+                }
+            }
+        >
+            <div class="rounded-lg bg-canvas border border-hairline divide-y divide-divider-soft mb-4">
+                <For
+                    each=move || workspaces.get()
+                    key=|w| (w.id, w.needs_reconnect)
+                    let:w
+                >
+                    <div class="px-4 py-3">
+                        <div data-testid="workspace" class="text-body break-all">{w.name.clone()}</div>
+                        <Show when=move || w.needs_reconnect>
+                            // Said plainly, not as a warning icon: the whole
+                            // point is that the person finds out here rather
+                            // than from a calendar that quietly stopped.
+                            <div data-testid="needs-reconnect" class="text-fine text-ink-48 mt-1">
+                                "Notion refused this connection. Reconnect to resume syncing."
+                            </div>
+                        </Show>
+                    </div>
+                </For>
+            </div>
+            <ConnectButton label="Connect another workspace"/>
+        </Show>
+    }
+}
+
+#[component]
+fn ConnectButton(#[prop(into)] label: String) -> impl IntoView {
+    // A link, not a button with an Action: the flow is a full-page redirect
+    // to Notion, so there is no in-flight state for a spinner to describe.
+    view! {
+        <a
+            href="/notion/connect"
+            role="button"
+            data-testid="connect-notion"
+            class="w-full h-12 inline-flex items-center justify-center rounded-full
+                   bg-canvas border border-hairline text-action text-body no-underline"
+        >
+            {label}
+        </a>
     }
 }

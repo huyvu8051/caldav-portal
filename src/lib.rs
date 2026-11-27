@@ -12,6 +12,8 @@ pub mod caldav_admin;
 #[cfg(feature = "ssr")]
 pub mod db;
 #[cfg(feature = "ssr")]
+pub mod notion_oauth;
+#[cfg(feature = "ssr")]
 pub mod oidc;
 pub mod pages;
 #[cfg(feature = "ssr")]

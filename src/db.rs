@@ -16,6 +16,16 @@ pub struct Db {
     pool: PgPool,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct NotionConnection {
+    pub id: i64,
+    pub workspace_id: String,
+    pub workspace_name: String,
+    /// `None` is healthy. `Some` means Notion refused this token and the
+    /// sync loop has stopped using it.
+    pub token_invalid_since: Option<DateTime<Utc>>,
+}
+
 #[derive(Debug, Clone)]
 pub struct Account {
     pub id: i64,
@@ -41,9 +51,16 @@ impl Db {
             .bind(0x6361_6c64_7061_7274_i64)
             .execute(&mut *tx)
             .await?;
-        sqlx::raw_sql(include_str!("../migrations/0001_init.sql"))
-            .execute(&mut *tx)
-            .await?;
+        // Concatenated rather than run as separate transactions: together they
+        // are one unit of "bring this database up to date", and a crash
+        // between two of them would leave a shape no code expects.
+        sqlx::raw_sql(concat!(
+            include_str!("../migrations/0001_init.sql"),
+            "\n",
+            include_str!("../migrations/0002_notion.sql"),
+        ))
+        .execute(&mut *tx)
+        .await?;
         tx.commit().await
     }
 
@@ -146,6 +163,113 @@ impl Db {
     pub async fn delete_session(&self, id: &str) -> Result<()> {
         sqlx::query("DELETE FROM session WHERE id = $1")
             .bind(id)
+            .execute(&self.pool)
+            .await?;
+        Ok(())
+    }
+
+    // ---- Notion connections ----
+
+    pub async fn start_notion_flow(&self, state: &str, account_id: i64) -> Result<()> {
+        sqlx::query("INSERT INTO notion_flow (state, account_id) VALUES ($1, $2)")
+            .bind(state)
+            .bind(account_id)
+            .execute(&self.pool)
+            .await?;
+        Ok(())
+    }
+
+    /// Consumes the flow, like `finish_login`: a replayed callback must find
+    /// nothing rather than attach a second grant.
+    pub async fn finish_notion_flow(&self, state: &str) -> Result<Option<i64>> {
+        let row = sqlx::query(
+            "DELETE FROM notion_flow
+             WHERE state = $1 AND created_at > now() - interval '10 minutes'
+             RETURNING account_id",
+        )
+        .bind(state)
+        .fetch_optional(&self.pool)
+        .await?;
+        Ok(row.map(|r| r.get("account_id")))
+    }
+
+    /// Records a grant, replacing any previous one for the same workspace.
+    ///
+    /// `token_invalid_since = NULL` in the update is the point: reconnecting
+    /// is how a user fixes a revoked token, so it has to clear the mark that
+    /// stopped the sync loop. Leaving it set would make a successful
+    /// reconnect look identical to the broken state it was meant to repair.
+    pub async fn put_notion_connection(
+        &self,
+        account_id: i64,
+        token: &str,
+        workspace_id: &str,
+        workspace_name: &str,
+        bot_id: &str,
+    ) -> Result<i64> {
+        let row = sqlx::query(
+            "INSERT INTO notion_connection
+               (account_id, access_token, workspace_id, workspace_name, bot_id)
+             VALUES ($1, $2, $3, $4, $5)
+             ON CONFLICT (account_id, workspace_id) DO UPDATE SET
+               access_token        = EXCLUDED.access_token,
+               workspace_name      = EXCLUDED.workspace_name,
+               bot_id              = EXCLUDED.bot_id,
+               token_invalid_since = NULL
+             RETURNING id",
+        )
+        .bind(account_id)
+        .bind(token)
+        .bind(workspace_id)
+        .bind(workspace_name)
+        .bind(bot_id)
+        .fetch_one(&self.pool)
+        .await?;
+        Ok(row.get("id"))
+    }
+
+    pub async fn notion_connections(&self, account_id: i64) -> Result<Vec<NotionConnection>> {
+        let rows = sqlx::query(
+            "SELECT id, workspace_id, workspace_name, token_invalid_since
+             FROM notion_connection WHERE account_id = $1 ORDER BY created_at",
+        )
+        .bind(account_id)
+        .fetch_all(&self.pool)
+        .await?;
+        Ok(rows
+            .into_iter()
+            .map(|r| NotionConnection {
+                id: r.get("id"),
+                workspace_id: r.get("workspace_id"),
+                workspace_name: r.get("workspace_name"),
+                token_invalid_since: r.get("token_invalid_since"),
+            })
+            .collect())
+    }
+
+    /// Marks a grant as refused by Notion.
+    ///
+    /// Idempotent on the timestamp -- `WHERE token_invalid_since IS NULL` --
+    /// so the recorded time is when it was *first* seen to fail, not when it
+    /// was last retried. The difference matters for telling someone how long
+    /// their calendar has been stale.
+    pub async fn mark_notion_invalid(&self, connection_id: i64) -> Result<()> {
+        sqlx::query(
+            "UPDATE notion_connection SET token_invalid_since = now()
+             WHERE id = $1 AND token_invalid_since IS NULL",
+        )
+        .bind(connection_id)
+        .execute(&self.pool)
+        .await?;
+        Ok(())
+    }
+
+    pub async fn delete_notion_connection(&self, account_id: i64, id: i64) -> Result<()> {
+        // Scoped by account, not just by id: an id alone would let anyone
+        // with a session delete anyone else's connection.
+        sqlx::query("DELETE FROM notion_connection WHERE id = $1 AND account_id = $2")
+            .bind(id)
+            .bind(account_id)
             .execute(&self.pool)
             .await?;
         Ok(())
