@@ -157,6 +157,20 @@ select.field-select {
   * { transition-duration: 0.01ms !important; animation-duration: 0.01ms !important; }
 }
 
+/* Visible only to a screen reader. Tailwind ships this, but the CDN build
+   is configured from `tailwind.config` above and nothing here guarantees the
+   utility survives a future change -- and a live region that silently stops
+   being announced is not something a test would catch. */
+.sr-only {
+  position: absolute;
+  width: 1px; height: 1px;
+  padding: 0; margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border-width: 0;
+}
+
 @keyframes spin { to { transform: rotate(360deg); } }
 /* Indeterminate activity indicator (ui.rs). Sized in em and painted in
    currentColor so it belongs to whatever control it sits in. */

@@ -51,6 +51,10 @@ any_spawner = { version = "0.3", optional = true }
 # have to be changed together.
 wasm-bindgen = { version = "=0.2.129", optional = true }
 console_error_panic_hook = { version = "0.1", optional = true }
+# The clipboard, for the copy buttons on the credential rows. Through
+# web-sys rather than an inline onclick string, so a mistake is a compile
+# error instead of a button that silently does nothing.
+web-sys = { version = "0.3", features = ["Window", "Navigator", "Clipboard"], optional = true }
 
 [features]
 ssr = [
@@ -75,6 +79,7 @@ ssr = [
 hydrate = [
     "dep:wasm-bindgen",
     "dep:console_error_panic_hook",
+    "dep:web-sys",
     "leptos/hydrate",
 ]
 

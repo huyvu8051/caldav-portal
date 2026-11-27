@@ -1,6 +1,6 @@
 //! The credentials page: what a person came here to get.
 
-use crate::ui::{Column, PendingButton, ServerLink};
+use crate::ui::{Column, CopyRow, PendingButton, ServerLink};
 use leptos::prelude::*;
 use leptos_meta::Title;
 use leptos_router::components::A;
@@ -316,9 +316,9 @@ fn CredentialCard(
         </p>
 
         <div class="rounded-lg bg-canvas border border-hairline divide-y divide-divider-soft">
-            <Row label="Server" value=Signal::derive(move || credentials.get().server) testid="server"/>
-            <Row label="User Name" value=Signal::derive(move || credentials.get().username) testid="username"/>
-            <Row label="Password" value=Signal::derive(move || credentials.get().password) testid="password"/>
+            <CopyRow label="Server" value=Signal::derive(move || credentials.get().server) testid="server"/>
+            <CopyRow label="User Name" value=Signal::derive(move || credentials.get().username) testid="username"/>
+            <CopyRow label="Password" value=Signal::derive(move || credentials.get().password) testid="password"/>
         </div>
 
         <div class="mt-6">
@@ -353,22 +353,6 @@ fn CredentialCard(
                 testid="signout"
                 class="text-body text-action no-underline inline-flex items-center h-11"
             />
-        </div>
-    }
-}
-
-#[component]
-fn Row(
-    #[prop(into)] label: String,
-    #[prop(into)] value: Signal<String>,
-    #[prop(into)] testid: String,
-) -> impl IntoView {
-    view! {
-        <div class="px-4 py-3">
-            <div class="text-fine text-ink-48 mb-1">{label}</div>
-            // break-all so a long value wraps instead of widening the column
-            // and giving the whole page a horizontal scrollbar on a phone.
-            <div data-testid=testid class="text-body break-all">{move || value.get()}</div>
         </div>
     }
 }
@@ -444,18 +428,17 @@ fn LinkList(
         >
             <div class="rounded-lg bg-canvas border border-hairline divide-y divide-divider-soft mb-4">
                 <For each=move || links.get() key=|l| l.id let:l>
-                    <div class="px-4 py-3">
-                        <div data-testid="link-name" class="text-body break-all">{l.name.clone()}</div>
+                    {
                         // The full URL, for clients that cannot walk
                         // /.well-known/caldav to the calendar home and have
-                        // to be handed the collection itself.
-                        <div data-testid="link-url" class="text-fine text-ink-48 break-all mt-1">
-                            {
-                                let uri = l.uri.clone();
-                                move || format!("{}{}", base.get().trim_end_matches('/'), uri)
-                            }
-                        </div>
-                    </div>
+                        // to be handed the collection itself. Which is
+                        // exactly the kind of thing nobody retypes by hand.
+                        let uri = l.uri.clone();
+                        let url = Signal::derive(move || {
+                            format!("{}{}", base.get().trim_end_matches('/'), uri)
+                        });
+                        view! { <CopyRow label=l.name.clone() value=url testid="link-url"/> }
+                    }
                 </For>
             </div>
         </Show>

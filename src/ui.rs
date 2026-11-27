@@ -174,3 +174,78 @@ pub fn Column(#[prop(optional, into)] class: String, children: Children) -> impl
         <div class=format!("mx-auto max-w-app px-5 {class}")>{children()}</div>
     }
 }
+
+/// A labelled value with a copy button.
+///
+/// Every row on the credential page is something a person has to retype into
+/// a phone -- a server URL, a username, a twenty-character password. Copying
+/// is the whole interaction, so it is a 44px target rather than a tap on the
+/// text.
+///
+/// The confirmation replaces the glyph in place for a moment rather than
+/// appearing beside it: a label that appears would reflow the row under a
+/// thumb that is still on the glass, which is the same reason PendingButton
+/// keeps its box.
+#[component]
+pub fn CopyRow(
+    #[prop(into)] label: String,
+    #[prop(into)] value: Signal<String>,
+    #[prop(optional, into)] testid: String,
+) -> impl IntoView {
+    let (copied, set_copied) = signal(false);
+    let aria = label.clone();
+
+    let on_click = move |_| {
+        copy_to_clipboard(&value.get());
+        set_copied.set(true);
+        // Long enough to read, short enough that a second copy still feels
+        // like it did something.
+        set_timeout(
+            move || set_copied.set(false),
+            std::time::Duration::from_millis(1500),
+        );
+    };
+
+    view! {
+        <div class="px-4 py-3 flex items-center gap-3">
+            <div class="min-w-0 flex-1">
+                <div class="text-fine text-ink-48 mb-1">{label}</div>
+                // break-all so a long value wraps instead of widening the
+                // column and giving the page a horizontal scrollbar.
+                <div data-testid=testid class="text-body break-all">{move || value.get()}</div>
+            </div>
+            <button
+                type="button"
+                data-testid="copy"
+                aria-label=move || format!("Copy {aria}")
+                class="shrink-0 w-11 h-11 inline-flex items-center justify-center rounded-full
+                       text-action"
+                on:click=on_click
+            >
+                <span class="material-symbols-outlined text-[20px]" aria-hidden="true">
+                    {move || if copied.get() { "check" } else { "content_copy" }}
+                </span>
+            </button>
+            // Announced rather than drawn: the glyph change is invisible to a
+            // screen reader, and "Copied" with no visual counterpart would be
+            // invisible to everyone else.
+            <span class="sr-only" aria-live="polite">
+                {move || if copied.get() { "Copied" } else { "" }}
+            </span>
+        </div>
+    }
+}
+
+/// Writes to the clipboard, where there is one.
+///
+/// A no-op on the server, which is not a degraded case: this only ever runs
+/// from a click, and a click only exists after hydration.
+#[cfg(feature = "hydrate")]
+fn copy_to_clipboard(text: &str) {
+    if let Some(window) = web_sys::window() {
+        let _ = window.navigator().clipboard().write_text(text);
+    }
+}
+
+#[cfg(not(feature = "hydrate"))]
+fn copy_to_clipboard(_text: &str) {}

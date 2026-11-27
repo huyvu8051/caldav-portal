@@ -51,17 +51,33 @@ fn Muted(children: Children) -> impl IntoView {
     view! { <p class="text-ink-48">{children()}</p> }
 }
 
+/// Structured data, so a search result shows what this is rather than the
+/// first forty words of the page.
+///
+/// No `offers` block: notion-caldav-saas carries one because it charges, and
+/// claiming a price for something free would be a lie a crawler repeats.
+const JSON_LD: &str = r##"{
+  "@context": "https://schema.org",
+  "@type": "SoftwareApplication",
+  "name": "Notion calendars",
+  "url": "https://notion-caldav-portal.opendiy.vn/",
+  "applicationCategory": "BusinessApplication",
+  "operatingSystem": "Web, iOS, macOS, Android",
+  "description": "Sync a Notion page with Apple Calendar, Google Calendar, or any CalDAV app. Edits flow both ways."
+}"##;
+
 #[component]
 pub fn Landing() -> impl IntoView {
     view! {
         <Title text="Notion calendars"/>
+        <script type="application/ld+json" inner_html=JSON_LD></script>
 
         // Hero on parchment. Display type, negative tracking, and enough air
-        // above and below that the sentence is the only thing on screen --
-        // which is the whole trick DESIGN.md is describing when it says the
-        // chrome recedes.
-        <section class="bg-parchment py-20">
+        // that the sentence is the only thing on screen -- which is the trick
+        // DESIGN.md is describing when it says the chrome recedes.
+        <section class="bg-parchment pt-20 pb-16">
             <Column>
+                <Glyph name="calendar_month" class="text-action text-[32px] mb-5"/>
                 <h1 class="text-[40px] leading-[1.08] tracking-[-0.4px] font-semibold mb-4">
                     "Your Notion pages."
                     <br/>
@@ -78,55 +94,89 @@ pub fn Landing() -> impl IntoView {
                     class="w-full h-12 inline-flex items-center justify-center rounded-full
                            bg-action text-canvas text-body font-semibold no-underline"
                 />
+                <p class="text-caption text-ink-48 mt-4 text-center">
+                    "Free. No card, no subscription."
+                </p>
             </Column>
         </section>
 
         // Dark tile. The alternation is what gives a page rhythm; one
-        // uninterrupted parchment column is exactly what made this feel
-        // empty.
+        // uninterrupted parchment column is what made this feel empty.
         <section class="bg-tile-1 text-on-dark py-20">
             <Column>
-                <h2 class="text-[28px] leading-[1.14] tracking-[-0.28px] font-semibold mb-6">
+                <h2 class="text-[28px] leading-[1.14] tracking-[-0.28px] font-semibold mb-8">
                     "Four steps, once."
                 </h2>
-                <div class="space-y-6">
-                    <DarkStep n="1" text="Sign in. You get one CalDAV username and password."/>
-                    <DarkStep n="2" text="Connect Notion and choose which pages to share."/>
-                    <DarkStep n="3" text="Pick a page. A calendar database is created under it."/>
-                    <DarkStep n="4" text="Add the calendar to your phone with the URL shown."/>
+                <div class="space-y-7">
+                    <DarkStep
+                        icon="login" n="1"
+                        title="Sign in"
+                        text="You get one CalDAV username and password, for every calendar on your account."
+                    />
+                    <DarkStep
+                        icon="link" n="2"
+                        title="Connect Notion"
+                        text="You choose which pages to share, on Notion's own screen. Nothing else is readable."
+                    />
+                    <DarkStep
+                        icon="database" n="3"
+                        title="Pick a page"
+                        text="A calendar database is created under it, with the columns already set up."
+                    />
+                    <DarkStep
+                        icon="event_available" n="4"
+                        title="Add it to your phone"
+                        text="Paste the URL into the calendar app you already use."
+                    />
                 </div>
             </Column>
         </section>
 
-        // Back to canvas: the white tile, for the thing that is actually
-        // being sold -- that it works with the calendar app already on the
-        // phone.
+        // Canvas: the three things worth knowing before signing in.
         <section class="bg-canvas py-20">
             <Column>
-                <h2 class="text-[28px] leading-[1.14] tracking-[-0.28px] font-semibold mb-4">
-                    "No app to install."
+                <h2 class="text-[28px] leading-[1.14] tracking-[-0.28px] font-semibold mb-8">
+                    "What you get."
                 </h2>
-                <p class="text-body text-ink-48 mb-6">
-                    "It speaks CalDAV, which iPhone, Mac, Thunderbird and Android clients
-                     already speak. You paste a URL into the calendar app you have."
-                </p>
-                <div class="rounded-lg bg-parchment p-5 text-caption text-ink-48 break-all">
-                    "https://caldav.opendiy.vn/calendars/u1/notion-xxxx/"
+                <div class="space-y-5">
+                    <Feature
+                        icon="sync_alt"
+                        title="Both directions"
+                        text="Move an event on your phone and the Notion page moves. Edit the page and the
+                              event moves. Neither side is a copy of the other."
+                    />
+                    <Feature
+                        icon="devices"
+                        title="No app to install"
+                        text="It speaks CalDAV, which iPhone, Mac, Thunderbird and Android clients already
+                              speak. There is nothing new on your phone."
+                    />
+                    <Feature
+                        icon="security"
+                        title="Only what you shared"
+                        text="It reads and writes the pages you picked on Notion, and nothing else. Revoke
+                              it from Notion at any time."
+                    />
+                </div>
+
+                <div class="rounded-lg bg-parchment p-4 mt-8">
+                    <div class="text-fine text-ink-48 mb-1">"The URL you paste"</div>
+                    <div class="text-caption break-all">
+                        "https://caldav.opendiy.vn/calendars/u1/notion-xxxx/"
+                    </div>
                 </div>
             </Column>
         </section>
 
         // The honest section. Last, in the quietest surface, because it is
-        // for the person who is deciding -- not the person being persuaded.
+        // for the person deciding -- not the person being persuaded.
         <section class="bg-parchment py-20">
             <Column>
                 <h2 class="text-[28px] leading-[1.14] tracking-[-0.28px] font-semibold mb-6">
                     "What it will not do."
                 </h2>
                 <div class="space-y-4 text-body text-ink-48">
-                    <p>
-                        "It cannot read Notion pages you have not shared with it."
-                    </p>
+                    <p>"It cannot read Notion pages you have not shared with it."</p>
                     <p>
                         "It will not map an existing database. It creates its own, so the
                          columns it depends on are known by id and survive being renamed."
@@ -135,10 +185,26 @@ pub fn Landing() -> impl IntoView {
                         "It is a sync, not a backup. A deletion on one side is a deletion
                          on the other."
                     </p>
-                    <p>"There is no payment and no subscription."</p>
+                    <p>
+                        "It keeps your CalDAV password in readable form, so it can show it
+                         to you again. The "
+                        <A href="/privacy" attr:class="text-action no-underline">"privacy page"</A>
+                        " says exactly what that means."
+                    </p>
                 </div>
 
-                <div class="mt-12 pt-6 border-t border-hairline flex gap-5 text-caption">
+                <div class="mt-10">
+                    <ServerLink
+                        href="/signin"
+                        label="Sign in"
+                        testid="signin-bottom"
+                        button=true
+                        class="w-full h-12 inline-flex items-center justify-center rounded-full
+                               bg-action text-canvas text-body font-semibold no-underline"
+                    />
+                </div>
+
+                <div class="mt-10 pt-6 border-t border-hairline flex gap-5 text-caption">
                     <A href="/privacy" attr:class="text-action no-underline">"Privacy"</A>
                     <A href="/terms" attr:class="text-action no-underline">"Terms"</A>
                 </div>
@@ -147,16 +213,56 @@ pub fn Landing() -> impl IntoView {
     }
 }
 
-/// A numbered line on a dark tile.
+/// A Material Symbol.
 ///
-/// The number sits in `ink-on-dark` rather than the accent: on a dark surface
-/// the accent is reserved for the thing you can press, and nothing here is.
+/// `aria-hidden`, always: every one of these sits beside text that already
+/// says the same thing, so announcing the ligature name would be a second
+/// reading of the same line.
 #[component]
-fn DarkStep(#[prop(into)] n: String, #[prop(into)] text: String) -> impl IntoView {
+fn Glyph(#[prop(into)] name: String, #[prop(into)] class: String) -> impl IntoView {
+    view! {
+        <span class=format!("material-symbols-outlined {class}") aria-hidden="true">{name}</span>
+    }
+}
+
+/// A numbered step on a dark tile.
+///
+/// The number and glyph sit in `ink-on-dark`, not the accent: on a dark
+/// surface the accent is reserved for the thing you can press, and nothing
+/// here is pressable.
+#[component]
+fn DarkStep(
+    #[prop(into)] icon: String,
+    #[prop(into)] n: String,
+    #[prop(into)] title: String,
+    #[prop(into)] text: String,
+) -> impl IntoView {
     view! {
         <div class="flex gap-4">
-            <div class="shrink-0 text-tagline font-semibold text-ink-on-dark w-6">{n}</div>
-            <div class="text-body text-on-dark">{text}</div>
+            <Glyph name=icon class="text-ink-on-dark text-[22px] shrink-0 mt-0.5"/>
+            <div>
+                <div class="text-body font-semibold text-on-dark mb-1">
+                    {n}". "{title}
+                </div>
+                <div class="text-body text-ink-on-dark">{text}</div>
+            </div>
+        </div>
+    }
+}
+
+#[component]
+fn Feature(
+    #[prop(into)] icon: String,
+    #[prop(into)] title: String,
+    #[prop(into)] text: String,
+) -> impl IntoView {
+    view! {
+        <div class="flex gap-4">
+            <Glyph name=icon class="text-action text-[22px] shrink-0 mt-0.5"/>
+            <div>
+                <div class="text-body font-semibold mb-1">{title}</div>
+                <div class="text-body text-ink-48">{text}</div>
+            </div>
         </div>
     }
 }
