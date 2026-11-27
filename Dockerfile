@@ -46,6 +46,13 @@ RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates
 COPY --from=builder /app/target/release/caldav-portal /usr/local/bin/caldav-portal
 COPY --from=wasm-builder /app/pkg /pkg
 COPY --from=wasm-builder /app/output-name.txt /output-name.txt
+# Non-root, matching caldav-rs and notion-bridge. Not decorative: the
+# Deployment sets `runAsNonRoot: true`, and an image with no USER fails to
+# start with `container has runAsNonRoot and image will run as root` -- a
+# CreateContainerConfigError, which looks like a secret or config problem
+# and is not.
+RUN useradd --system --uid 10001 portal
+USER 10001
 WORKDIR /
 EXPOSE 8091
 ENTRYPOINT ["/bin/sh", "-c", "export LEPTOS_OUTPUT_NAME=$(cat /output-name.txt) && exec caldav-portal"]
