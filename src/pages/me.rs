@@ -4,6 +4,7 @@ use crate::ui::{Column, CopyRow, PendingButton, ServerLink};
 use leptos::prelude::*;
 use leptos_meta::Title;
 use leptos_router::components::A;
+use leptos_router::hooks::use_query_map;
 use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -236,6 +237,55 @@ pub(crate) async fn session() -> Result<Option<(crate::state::ServerState, i64)>
     }
 }
 
+/// What the Notion round trip did, said out loud.
+///
+/// The callback distinguishes nine outcomes and redirects to `?notion=...`
+/// for each; for a while this page read none of them. So choosing "select
+/// existing pages" on Notion's consent screen -- which duplicates nothing
+/// and therefore creates no calendar -- returned someone to an unchanged
+/// page with no explanation, and so did a cancelled consent, a failed token
+/// exchange, and a failed MKCALENDAR. Four different silences that all look
+/// like "the button does nothing".
+#[component]
+fn Notice() -> impl IntoView {
+    let query = use_query_map();
+    let state = Signal::derive(move || query.read().get("notion").unwrap_or_default());
+
+    view! {
+        <Show when=move || !state.get().is_empty()>
+            {move || {
+                let (tone, text): (&str, &str) = match state.get().as_str() {
+                    "connected" => ("ok", "Calendar created."),
+                    "reconnected" => ("ok", "Reconnected. Syncing will resume within a minute."),
+                    // The one worth explaining rather than reporting: it is
+                    // not a failure, it is a different button on Notion's
+                    // screen, and the fix is to press the other one.
+                    "no-template" => (
+                        "note",
+                        "No calendar was created. On Notion's screen, choose \"Duplicate\" \
+                         rather than selecting an existing page -- this creates its own \
+                         database so the columns it relies on are known.",
+                    ),
+                    "cancelled" => ("note", "Nothing was connected."),
+                    "expired" => ("note", "That took too long. Try again."),
+                    "calendar" => (
+                        "note",
+                        "Notion connected, but the calendar could not be created. Try again.",
+                    ),
+                    // incomplete | exchange | db, and anything else.
+                    _ => ("note", "Something went wrong connecting Notion. Try again."),
+                };
+                let class = if tone == "ok" {
+                    "rounded-lg bg-canvas border border-hairline p-4 mb-6 text-body"
+                } else {
+                    "rounded-lg bg-canvas border border-hairline p-4 mb-6 text-body text-ink-48"
+                };
+                view! { <div data-testid="notice" class=class>{text}</div> }
+            }}
+        </Show>
+    }
+}
+
 #[component]
 pub fn Me() -> impl IntoView {
     let credentials = Resource::new(|| (), |_| my_credentials());
@@ -244,6 +294,11 @@ pub fn Me() -> impl IntoView {
 
     view! {
       <Column class="py-8">
+        // Above the Suspense, so the outcome survives whichever branch
+        // renders. Inside the signed-in card it was lost whenever the
+        // session expired between Notion's callback and this page -- the one
+        // moment someone most needs to be told what happened.
+        <Notice/>
         <Suspense fallback=|| {
             view! { <p class="text-body text-ink-48">"Loading…"</p> }
         }>
