@@ -1,7 +1,8 @@
 //! The credentials page: what a person came here to get.
 
-use crate::ui::PendingButton;
+use crate::ui::{PendingButton, ServerLink};
 use leptos::prelude::*;
+use leptos_router::components::A;
 use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -272,15 +273,14 @@ fn SignedOut() -> impl IntoView {
         <p class="text-body text-ink-48 mb-6">
             "Sign in to get the CalDAV details for your phone."
         </p>
-        <a
+        <ServerLink
             href="/signin"
-            role="button"
-            data-testid="signin"
+            label="Sign in"
+            testid="signin"
+            button=true
             class="w-full h-12 inline-flex items-center justify-center rounded-full
                    bg-action text-canvas text-body font-semibold no-underline"
-        >
-            "Sign in"
-        </a>
+        />
     }
 }
 
@@ -289,14 +289,14 @@ fn ErrorBox(message: String) -> impl IntoView {
     view! {
         <h1 class="text-title font-semibold mb-2">"Something went wrong"</h1>
         <p data-testid="error" class="text-body text-ink-48 mb-6">{message}</p>
-        <a
+        <A
             href="/me"
-            role="button"
-            class="w-full h-12 inline-flex items-center justify-center rounded-full
-                   bg-canvas border border-hairline text-action text-body no-underline"
+            attr:role="button"
+            attr:class="w-full h-12 inline-flex items-center justify-center rounded-full
+                        bg-canvas border border-hairline text-action text-body no-underline"
         >
             "Try again"
-        </a>
+        </A>
     }
 }
 
@@ -343,13 +343,12 @@ fn CredentialCard(
         <NotionSection workspaces=Signal::derive(move || credentials.get().workspaces)/>
 
         <div class="mt-8">
-            <a
+            <ServerLink
                 href="/signout"
-                data-testid="signout"
+                label="Sign out"
+                testid="signout"
                 class="text-body text-action no-underline inline-flex items-center h-11"
-            >
-                "Sign out"
-            </a>
+            />
         </div>
     }
 }
@@ -413,15 +412,14 @@ fn ConnectButton(#[prop(into)] label: String) -> impl IntoView {
     // A link, not a button with an Action: the flow is a full-page redirect
     // to Notion, so there is no in-flight state for a spinner to describe.
     view! {
-        <a
+        <ServerLink
             href="/notion/connect"
-            role="button"
-            data-testid="connect-notion"
+            label=label
+            testid="connect-notion"
+            button=true
             class="w-full h-12 inline-flex items-center justify-center rounded-full
                    bg-canvas border border-hairline text-action text-body no-underline"
-        >
-            {label}
-        </a>
+        />
     }
 }
 
@@ -457,14 +455,14 @@ fn LinkList(
                 </For>
             </div>
         </Show>
-        <a
+        <A
             href="/add"
-            role="button"
-            data-testid="add-calendar"
-            class="w-full h-12 inline-flex items-center justify-center rounded-full
-                   bg-canvas border border-hairline text-action text-body no-underline"
+            attr:data-testid="add-calendar"
+            attr:role="button"
+            attr:class="w-full h-12 inline-flex items-center justify-center rounded-full
+                        bg-canvas border border-hairline text-action text-body no-underline"
         >
             "Add a calendar"
-        </a>
+        </A>
     }
 }

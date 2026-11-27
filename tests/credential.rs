@@ -330,3 +330,61 @@ async fn a_connection_token_is_not_readable_across_accounts() {
         Some("their-token")
     );
 }
+
+/// Links to server routes must opt out of the client router.
+///
+/// A source-level check, which is unusual and earned. leptos_router
+/// intercepts every same-origin anchor click and resolves it against the
+/// *client* route table. `/signin`, `/signout` and `/notion/connect` are
+/// plain axum handlers returning 303, so they are not in that table: the
+/// router finds no match, renders NotFound, and the request never leaves the
+/// browser. The URL bar changes, so it reads as a routing bug rather than a
+/// link that was never followed.
+///
+/// Every curl of those paths answered correctly, every other test passed, and
+/// the page said "Not found". Nothing below the browser can see this, which
+/// is why the check is on the source.
+#[test]
+fn server_routes_are_only_linked_through_server_link() {
+    const SERVER_ROUTES: [&str; 4] = ["/signin", "/signout", "/notion/connect", "/notion/callback"];
+    let mut offenders = Vec::new();
+
+    for entry in std::fs::read_dir("src/pages").expect("src/pages") {
+        let path = entry.expect("entry").path();
+        if path.extension().and_then(|e| e.to_str()) != Some("rs") {
+            continue;
+        }
+        let src = std::fs::read_to_string(&path).expect("read");
+        // Split on `<a` followed by any whitespace -- not `"<a "`, which was
+        // the first spelling and missed every anchor written across lines.
+        // A mutation check caught that: putting a raw multi-line anchor back
+        // left this test green.
+        let chunks: Vec<&str> = src
+            .match_indices("<a")
+            .filter(|(i, _)| {
+                src[i + 2..]
+                    .chars()
+                    .next()
+                    .map(|c| c.is_whitespace())
+                    .unwrap_or(false)
+            })
+            .map(|(i, _)| &src[i..])
+            .collect();
+        for chunk in chunks {
+            let head: String = chunk.chars().take(400).collect();
+            for route in SERVER_ROUTES {
+                if head.contains(&format!("\"{route}\"")) && !head.contains("rel=\"external\"") {
+                    offenders.push(format!(
+                        "{}: <a> to {route} without rel=external",
+                        path.display()
+                    ));
+                }
+            }
+        }
+    }
+
+    assert!(
+        offenders.is_empty(),
+        "use ui::ServerLink for these -- {offenders:#?}"
+    );
+}

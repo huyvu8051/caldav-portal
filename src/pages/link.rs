@@ -1,7 +1,8 @@
 //! Picking a Notion page to put a calendar under, and the link that makes.
 
-use crate::ui::PendingButton;
+use crate::ui::{PendingButton, ServerLink};
 use leptos::prelude::*;
+use leptos_router::components::A;
 use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
@@ -243,21 +244,24 @@ pub fn LinkPicker() -> impl IntoView {
                 match choices.await {
                     Err(e) => view! {
                         <p data-testid="error" class="text-body text-ink-48 mb-6">{e.to_string()}</p>
-                        <a href="/notion/connect" role="button"
-                           class="w-full h-12 inline-flex items-center justify-center rounded-full
-                                  bg-action text-canvas text-body font-semibold no-underline">
-                            "Reconnect Notion"
-                        </a>
+                        <ServerLink
+                            href="/notion/connect"
+                            label="Reconnect Notion"
+                            testid="reconnect-notion"
+                            button=true
+                            class="w-full h-12 inline-flex items-center justify-center rounded-full
+                                   bg-action text-canvas text-body font-semibold no-underline"
+                        />
                     }.into_any(),
                     Ok(None) => view! {
                         <p class="text-body text-ink-48 mb-6">
                             "Connect a Notion workspace first."
                         </p>
-                        <a href="/me" role="button"
-                           class="w-full h-12 inline-flex items-center justify-center rounded-full
-                                  bg-canvas border border-hairline text-action text-body no-underline">
+                        <A href="/me" attr:role="button"
+                           attr:class="w-full h-12 inline-flex items-center justify-center rounded-full
+                                       bg-canvas border border-hairline text-action text-body no-underline">
                             "Back"
-                        </a>
+                        </A>
                     }.into_any(),
                     Ok(Some(c)) => view! { <PageList choices=c link=link/> }.into_any(),
                 }

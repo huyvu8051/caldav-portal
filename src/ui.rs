@@ -125,3 +125,39 @@ pub fn PendingIconButton(
         </button>
     }
 }
+
+/// A link to a route the server handles, not the client router.
+///
+/// `rel="external"` is load-bearing and its absence is invisible until a
+/// human clicks. leptos_router intercepts every same-origin anchor click and
+/// resolves it against the *client* route table; `/signin`, `/signout` and
+/// `/notion/connect` are plain axum handlers that return 303, so they are not
+/// in that table. The router finds no match, renders the NotFound fallback,
+/// and the request never reaches the server. The URL bar changes, so it looks
+/// like a routing bug in the app rather than a link that was never followed.
+///
+/// Every curl of those paths works, every unit test passes, and the page says
+/// "Not found". Which is how this shipped.
+///
+/// One component, so the knowledge lives in one place rather than in four
+/// anchors that each have to remember.
+#[component]
+pub fn ServerLink(
+    #[prop(into)] href: String,
+    #[prop(into)] label: String,
+    #[prop(into)] class: String,
+    #[prop(optional, into)] testid: String,
+    #[prop(optional)] button: bool,
+) -> impl IntoView {
+    view! {
+        <a
+            data-testid=testid
+            href=href
+            rel="external"
+            role=move || if button { "button" } else { "link" }
+            class=class
+        >
+            {label}
+        </a>
+    }
+}

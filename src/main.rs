@@ -114,6 +114,42 @@ async fn main() -> anyhow::Result<()> {
             move || caldav_portal::shell(options.clone())
         })
         .fallback(leptos_axum::file_and_error_handler(caldav_portal::shell))
+        // One line per request: method, path, status, duration.
+        //
+        // The path only -- never the query. `/callback?code=...` carries a
+        // live OAuth authorization code and `/notion/callback?code=...` the
+        // same for Notion; both are credentials for the few minutes they are
+        // valid, and an access log is the one place they would sit in plain
+        // text on disk and in Loki.
+        //
+        // Worth having at all because this is the layer where a wrong answer
+        // is invisible from inside the app: a link the client router
+        // swallowed never arrives here, so an empty log for a click someone
+        // swears they made is itself the diagnosis.
+        .layer(
+            tower_http::trace::TraceLayer::new_for_http()
+                .make_span_with(|req: &axum::http::Request<_>| {
+                    tracing::info_span!(
+                        "http",
+                        method = %req.method(),
+                        path = %req.uri().path(),
+                    )
+                })
+                .on_request(|_: &axum::http::Request<_>, _: &tracing::Span| {
+                    tracing::info!("request");
+                })
+                .on_response(
+                    |res: &axum::http::Response<_>,
+                     latency: std::time::Duration,
+                     _: &tracing::Span| {
+                        tracing::info!(
+                            status = res.status().as_u16(),
+                            ms = latency.as_millis() as u64,
+                            "response"
+                        );
+                    },
+                ),
+        )
         // An Extension rather than axum state: `with_state` is already spoken
         // for by LeptosOptions, and server functions reach this through
         // `leptos_axum::extract`, which sees extensions.
