@@ -5,6 +5,15 @@ use leptos::prelude::*;
 use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct CalendarLink {
+    pub id: i64,
+    pub name: String,
+    /// The collection path. Joined with the server origin for display,
+    /// because a client that cannot discover needs the whole URL.
+    pub uri: String,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Workspace {
     pub id: i64,
     pub name: String,
@@ -21,6 +30,7 @@ pub struct Credentials {
     pub username: String,
     pub password: String,
     pub workspaces: Vec<Workspace>,
+    pub links: Vec<CalendarLink>,
 }
 
 /// Everything the server knows about the signed-in person, provisioning the
@@ -51,6 +61,7 @@ pub async fn my_credentials() -> Result<Option<Credentials>, ServerFnError> {
             username: u.clone(),
             password: p.clone(),
             workspaces: workspaces(&server, account_id).await?,
+            links: links(&server, account_id).await?,
         }));
     }
 
@@ -84,6 +95,7 @@ pub async fn my_credentials() -> Result<Option<Credentials>, ServerFnError> {
             username: again.caldav_username.unwrap_or_default(),
             password: again.caldav_password.unwrap_or_default(),
             workspaces: workspaces(&server, account_id).await?,
+            links: links(&server, account_id).await?,
         }));
     }
 
@@ -113,7 +125,29 @@ pub async fn my_credentials() -> Result<Option<Credentials>, ServerFnError> {
         username,
         password,
         workspaces: workspaces(&server, account_id).await?,
+        links: links(&server, account_id).await?,
     }))
+}
+
+/// The calendars this account has linked.
+#[cfg(feature = "ssr")]
+async fn links(
+    server: &crate::state::ServerState,
+    account_id: i64,
+) -> Result<Vec<CalendarLink>, ServerFnError> {
+    let rows = server
+        .db
+        .links(account_id)
+        .await
+        .map_err(|e| ServerFnError::new(format!("could not list links: {e}")))?;
+    Ok(rows
+        .into_iter()
+        .map(|l| CalendarLink {
+            id: l.id,
+            name: l.display_name,
+            uri: l.calendar_uri,
+        })
+        .collect())
 }
 
 /// The Notion workspaces this account has connected.
@@ -182,13 +216,14 @@ pub async fn rotate_password() -> Result<Credentials, ServerFnError> {
         username,
         password,
         workspaces: workspaces(&server, account_id).await?,
+        links: links(&server, account_id).await?,
     })
 }
 
 /// The session cookie, resolved to an account. `None` means signed out, which
 /// is a state to render rather than an error.
 #[cfg(feature = "ssr")]
-async fn session() -> Result<Option<(crate::state::ServerState, i64)>, ServerFnError> {
+pub(crate) async fn session() -> Result<Option<(crate::state::ServerState, i64)>, ServerFnError> {
     use axum::extract::Extension;
     use axum_extra::extract::cookie::CookieJar;
 
@@ -300,6 +335,10 @@ fn CredentialCard(
             </p>
         </div>
 
+        <h2 class="text-tagline font-semibold mt-10 mb-2">"Calendars"</h2>
+        <LinkList links=Signal::derive(move || credentials.get().links)
+                  base=Signal::derive(move || credentials.get().server)/>
+
         <h2 class="text-tagline font-semibold mt-10 mb-2">"Notion"</h2>
         <NotionSection workspaces=Signal::derive(move || credentials.get().workspaces)/>
 
@@ -382,6 +421,50 @@ fn ConnectButton(#[prop(into)] label: String) -> impl IntoView {
                    bg-canvas border border-hairline text-action text-body no-underline"
         >
             {label}
+        </a>
+    }
+}
+
+#[component]
+fn LinkList(
+    #[prop(into)] links: Signal<Vec<CalendarLink>>,
+    /// The CalDAV origin, so each row can show a URL rather than a path. A
+    /// path is not something anyone can paste into a calendar client.
+    #[prop(into)]
+    base: Signal<String>,
+) -> impl IntoView {
+    view! {
+        <Show
+            when=move || !links.get().is_empty()
+            fallback=|| view! {
+                <p class="text-body text-ink-48 mb-4">"No calendars yet."</p>
+            }
+        >
+            <div class="rounded-lg bg-canvas border border-hairline divide-y divide-divider-soft mb-4">
+                <For each=move || links.get() key=|l| l.id let:l>
+                    <div class="px-4 py-3">
+                        <div data-testid="link-name" class="text-body break-all">{l.name.clone()}</div>
+                        // The full URL, for clients that cannot walk
+                        // /.well-known/caldav to the calendar home and have
+                        // to be handed the collection itself.
+                        <div data-testid="link-url" class="text-fine text-ink-48 break-all mt-1">
+                            {
+                                let uri = l.uri.clone();
+                                move || format!("{}{}", base.get().trim_end_matches('/'), uri)
+                            }
+                        </div>
+                    </div>
+                </For>
+            </div>
+        </Show>
+        <a
+            href="/add"
+            role="button"
+            data-testid="add-calendar"
+            class="w-full h-12 inline-flex items-center justify-center rounded-full
+                   bg-canvas border border-hairline text-action text-body no-underline"
+        >
+            "Add a calendar"
         </a>
     }
 }

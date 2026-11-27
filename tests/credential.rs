@@ -239,3 +239,94 @@ async fn one_account_cannot_delete_another_accounts_connection() {
     db.delete_notion_connection(theirs, conn).await.unwrap();
     assert_eq!(db.notion_connections(theirs).await.unwrap().len(), 0);
 }
+
+#[tokio::test]
+async fn a_failed_calendar_creation_does_not_lock_the_page_out() {
+    // The claim comes first so a race has one winner, which means a failure
+    // after the claim has to release it. Leaving the row would point a link
+    // at a collection that does not exist *and* make every retry fail on the
+    // UNIQUE constraint -- one transient error would lock that page out for
+    // good.
+    let db = db().await;
+    let id = db.upsert_account(&sub(), "a@example.com").await.unwrap();
+    let conn = db
+        .put_notion_connection(id, "tok", &username(), "W", "b")
+        .await
+        .unwrap();
+    let page = format!("page-{}", caldav_portal::oidc::random_token());
+
+    // Generated, not fixed: `caldav_calendar_uri` is UNIQUE, so a literal
+    // collides with this test's own previous run. The same mistake cost a
+    // red suite once already.
+    let uri = format!("/calendars/u1/{}/", username());
+
+    let first = db
+        .claim_link(id, conn, &page, "Work", &uri)
+        .await
+        .unwrap()
+        .expect("the first claim wins");
+    db.release_link(first).await.unwrap();
+
+    let again = db.claim_link(id, conn, &page, "Work", &uri).await.unwrap();
+    assert!(again.is_some(), "a retry after a release must succeed");
+}
+
+#[tokio::test]
+async fn the_same_page_cannot_be_linked_twice() {
+    let db = db().await;
+    let id = db.upsert_account(&sub(), "a@example.com").await.unwrap();
+    let conn = db
+        .put_notion_connection(id, "tok", &username(), "W", "b")
+        .await
+        .unwrap();
+    let page = format!("page-{}", caldav_portal::oidc::random_token());
+
+    assert!(db
+        .claim_link(
+            id,
+            conn,
+            &page,
+            "Work",
+            &format!("/calendars/u1/{}/", username())
+        )
+        .await
+        .unwrap()
+        .is_some());
+    assert!(
+        db.claim_link(
+            id,
+            conn,
+            &page,
+            "Work",
+            &format!("/calendars/u1/{}/", username())
+        )
+        .await
+        .unwrap()
+        .is_none(),
+        "two calendars racing to own one Notion database is the thing the \
+         constraint exists to stop"
+    );
+    assert_eq!(db.links(id).await.unwrap().len(), 1);
+}
+
+#[tokio::test]
+async fn a_connection_token_is_not_readable_across_accounts() {
+    let db = db().await;
+    let mine = db.upsert_account(&sub(), "a@example.com").await.unwrap();
+    let theirs = db.upsert_account(&sub(), "b@example.com").await.unwrap();
+    let conn = db
+        .put_notion_connection(theirs, "their-token", &username(), "W", "b")
+        .await
+        .unwrap();
+
+    assert_eq!(
+        db.connection_token(mine, conn).await.unwrap(),
+        None,
+        "reading by connection id alone would hand over someone else's \
+         Notion token"
+    );
+    assert_eq!(
+        db.connection_token(theirs, conn).await.unwrap().as_deref(),
+        Some("their-token")
+    );
+}

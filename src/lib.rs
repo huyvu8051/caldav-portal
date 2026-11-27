@@ -10,7 +10,11 @@
 #[cfg(feature = "ssr")]
 pub mod caldav_admin;
 #[cfg(feature = "ssr")]
+pub mod caldav_client;
+#[cfg(feature = "ssr")]
 pub mod db;
+#[cfg(feature = "ssr")]
+pub mod notion_api;
 #[cfg(feature = "ssr")]
 pub mod notion_oauth;
 #[cfg(feature = "ssr")]
@@ -199,6 +203,7 @@ pub fn App() -> impl IntoView {
                 <Routes fallback=|| view! { <pages::not_found::NotFound/> }>
                     <Route path=StaticSegment("") view=pages::home::Home/>
                     <Route path=StaticSegment("me") view=pages::me::Me/>
+                    <Route path=StaticSegment("add") view=pages::link::LinkPicker/>
                 </Routes>
             </main>
         </Router>

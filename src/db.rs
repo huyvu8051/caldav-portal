@@ -17,6 +17,16 @@ pub struct Db {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CalendarLink {
+    pub id: i64,
+    pub display_name: String,
+    /// The collection path. Shown to the user as a full URL, because some
+    /// clients cannot discover a calendar and have to be handed one.
+    pub calendar_uri: String,
+    pub notion_parent_page: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct NotionConnection {
     pub id: i64,
     pub workspace_id: String,
@@ -58,6 +68,8 @@ impl Db {
             include_str!("../migrations/0001_init.sql"),
             "\n",
             include_str!("../migrations/0002_notion.sql"),
+            "\n",
+            include_str!("../migrations/0003_links.sql"),
         ))
         .execute(&mut *tx)
         .await?;
@@ -166,6 +178,93 @@ impl Db {
             .execute(&self.pool)
             .await?;
         Ok(())
+    }
+
+    // ---- Links ----
+
+    /// The token for one of this account's connections.
+    ///
+    /// Scoped by account in the query. Reading by connection id alone would
+    /// hand anyone with a session someone else's Notion token.
+    pub async fn connection_token(
+        &self,
+        account_id: i64,
+        connection_id: i64,
+    ) -> Result<Option<String>> {
+        let row = sqlx::query(
+            "SELECT access_token FROM notion_connection WHERE id = $1 AND account_id = $2",
+        )
+        .bind(connection_id)
+        .bind(account_id)
+        .fetch_optional(&self.pool)
+        .await?;
+        Ok(row.map(|r| r.get("access_token")))
+    }
+
+    /// Reserves a link before the calendar exists.
+    ///
+    /// Inserted first, like `claim_credential`, and for the same reason: the
+    /// UNIQUE on `(account_id, notion_parent_page)` is what stops two tabs
+    /// from both creating a calendar for the same page, and a database is
+    /// the only thing that can decide that. `ON CONFLICT DO NOTHING` makes
+    /// "already linked" a value rather than an error to parse.
+    pub async fn claim_link(
+        &self,
+        account_id: i64,
+        connection_id: i64,
+        parent_page: &str,
+        display_name: &str,
+        calendar_uri: &str,
+    ) -> Result<Option<i64>> {
+        let row = sqlx::query(
+            "INSERT INTO calendar_link
+               (account_id, notion_connection_id, notion_parent_page, display_name,
+                caldav_calendar_uri)
+             VALUES ($1, $2, $3, $4, $5)
+             ON CONFLICT DO NOTHING
+             RETURNING id",
+        )
+        .bind(account_id)
+        .bind(connection_id)
+        .bind(parent_page)
+        .bind(display_name)
+        .bind(calendar_uri)
+        .fetch_optional(&self.pool)
+        .await?;
+        Ok(row.map(|r| r.get("id")))
+    }
+
+    /// Undoes a claim whose calendar could not be created.
+    ///
+    /// Without this a failed MKCALENDAR would leave a row pointing at a
+    /// collection that does not exist, and the UNIQUE constraint would then
+    /// refuse every retry -- the user would be permanently unable to link a
+    /// page because of one transient failure.
+    pub async fn release_link(&self, id: i64) -> Result<()> {
+        sqlx::query("DELETE FROM calendar_link WHERE id = $1")
+            .bind(id)
+            .execute(&self.pool)
+            .await?;
+        Ok(())
+    }
+
+    pub async fn links(&self, account_id: i64) -> Result<Vec<CalendarLink>> {
+        let rows = sqlx::query(
+            "SELECT id, display_name, caldav_calendar_uri, notion_parent_page
+             FROM calendar_link WHERE account_id = $1 ORDER BY created_at",
+        )
+        .bind(account_id)
+        .fetch_all(&self.pool)
+        .await?;
+        Ok(rows
+            .into_iter()
+            .map(|r| CalendarLink {
+                id: r.get("id"),
+                display_name: r.get("display_name"),
+                calendar_uri: r.get("caldav_calendar_uri"),
+                notion_parent_page: r.get("notion_parent_page"),
+            })
+            .collect())
     }
 
     // ---- Notion connections ----
