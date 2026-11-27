@@ -197,6 +197,15 @@ pub async fn notion_callback(
         }
     };
 
+    // Logged before anything depends on it. The template-duplication flow
+    // hands back an id whose kind -- page or database -- decides how the
+    // calendar is wired up, and reading it once beats guessing.
+    tracing::info!(
+        workspace = %grant.workspace_id,
+        duplicated_template_id = ?grant.duplicated_template_id,
+        "notion grant"
+    );
+
     if let Err(e) = server
         .db
         .put_notion_connection(

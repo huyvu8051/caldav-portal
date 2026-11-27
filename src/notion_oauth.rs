@@ -35,6 +35,19 @@ pub struct Grant {
     pub workspace_name: Option<String>,
     #[serde(default)]
     pub bot_id: Option<String>,
+    /// What Notion duplicated into the workspace during consent, when the
+    /// integration is configured with a template.
+    ///
+    /// This is the whole of flow B: the calendar database arrives with the
+    /// grant instead of being created later, so there is nothing to pick and
+    /// no window where the portal has reported success but the database does
+    /// not exist yet.
+    ///
+    /// Whether it names a page or the database itself is not documented
+    /// clearly enough to build on, so it is captured and logged before being
+    /// relied upon.
+    #[serde(default)]
+    pub duplicated_template_id: Option<String>,
 }
 
 impl NotionOauth {
