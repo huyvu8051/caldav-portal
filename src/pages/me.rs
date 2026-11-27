@@ -1,7 +1,8 @@
 //! The credentials page: what a person came here to get.
 
-use crate::ui::{PendingButton, ServerLink};
+use crate::ui::{Column, PendingButton, ServerLink};
 use leptos::prelude::*;
+use leptos_meta::Title;
 use leptos_router::components::A;
 use serde::{Deserialize, Serialize};
 
@@ -247,6 +248,7 @@ pub fn Me() -> impl IntoView {
     let rotated = rotate.value();
 
     view! {
+      <Column class="py-8">
         <Suspense fallback=|| {
             view! { <p class="text-body text-ink-48">"Loading…"</p> }
         }>
@@ -263,6 +265,7 @@ pub fn Me() -> impl IntoView {
                 }
             })}
         </Suspense>
+      </Column>
     }
 }
 
@@ -306,6 +309,7 @@ fn CredentialCard(
     rotate: Action<(), Result<Credentials, ServerFnError>>,
 ) -> impl IntoView {
     view! {
+        <Title text="Your account"/>
         <h1 class="text-title font-semibold mb-2">"Your CalDAV account"</h1>
         <p class="text-body text-ink-48 mb-6">
             "On iPhone: Settings → Calendar → Accounts → Add Account → Other → Add CalDAV Account."

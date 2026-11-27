@@ -161,3 +161,16 @@ pub fn ServerLink(
         </a>
     }
 }
+
+/// The reading column.
+///
+/// 430px, centred, with the page padding. Lifted out of the router's `<main>`
+/// so a page can put it *inside* a full-bleed section rather than being
+/// wrapped by it -- which is the whole difference between a landing page and
+/// a narrow strip of text on a wide screen.
+#[component]
+pub fn Column(#[prop(optional, into)] class: String, children: Children) -> impl IntoView {
+    view! {
+        <div class=format!("mx-auto max-w-app px-5 {class}")>{children()}</div>
+    }
+}

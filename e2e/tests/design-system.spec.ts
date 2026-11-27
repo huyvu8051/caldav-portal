@@ -12,10 +12,11 @@ import { test, expect, Page } from '@playwright/test'
  * intended; a computed style says what shipped.
  */
 
-// Every page this app serves. New pages get added here, which is the point:
-// a page that is not in this list is a page the design system does not hold
-// for.
-const PAGES = ['/']
+// Every page this app serves without a session. New pages get added here,
+// which is the point: a page that is not in this list is a page the design
+// system does not hold for -- and for a while this list was just '/', so
+// four pages were unguarded.
+const PAGES = ['/', '/privacy', '/terms', '/me', '/add']
 
 async function visit(page: Page, url: string) {
   await page.goto(url)

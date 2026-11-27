@@ -71,6 +71,17 @@ tailwind.config = {
         // Hairlines -- the only separator in the system
         "hairline": "#e0e0e0",
         "divider-soft": "#f0f0f0",
+        // Full-bleed tiles. webcaldav leaves these out on purpose -- it is
+        // dense UI, not a landing page -- but a landing page is exactly what
+        // DESIGN.md derived them from.
+        "tile-1": "#272729",
+        "tile-2": "#2a2a2c",
+        "on-dark": "#ffffff",
+        "ink-on-dark": "#cccccc",
+        // The accent, on a dark tile. A different value, not a second
+        // accent: 209 degrees against Action Blue's 210, which is why the
+        // one-hue rule still holds.
+        "action-on-dark": "#2997ff",
       },
       fontFamily: {
         // Resolves to SF Pro on Apple platforms and a sane native face
@@ -197,11 +208,20 @@ pub fn shell(options: LeptosOptions) -> impl IntoView {
 pub fn App() -> impl IntoView {
     leptos_meta::provide_meta_context();
     view! {
-        <Title text="Your calendars"/>
+        // A per-page <Title/> overrides this; it is the fallback for any
+        // route that does not set one, and the name in a bookmark.
+        <Title text="Notion calendars"/>
         <Router>
-            <main class="mx-auto max-w-app px-5 py-8">
+            // No column here. It used to be `mx-auto max-w-app px-5 py-8`,
+            // which every page inherited and no page could escape -- and a
+            // landing page whose sections stop at 430px of white is the
+            // definition of looking empty. Each page applies `ui::Column`
+            // itself; the landing applies it inside each full-bleed section.
+            <main>
                 <Routes fallback=|| view! { <pages::not_found::NotFound/> }>
-                    <Route path=StaticSegment("") view=pages::home::Home/>
+                    <Route path=StaticSegment("") view=pages::legal::Landing/>
+                    <Route path=StaticSegment("privacy") view=pages::legal::Privacy/>
+                    <Route path=StaticSegment("terms") view=pages::legal::Terms/>
                     <Route path=StaticSegment("me") view=pages::me::Me/>
                     <Route path=StaticSegment("add") view=pages::link::LinkPicker/>
                 </Routes>

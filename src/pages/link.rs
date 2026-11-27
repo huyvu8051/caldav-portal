@@ -1,7 +1,8 @@
 //! Picking a Notion page to put a calendar under, and the link that makes.
 
-use crate::ui::{PendingButton, ServerLink};
+use crate::ui::{Column, PendingButton, ServerLink};
 use leptos::prelude::*;
+use leptos_meta::Title;
 use leptos_router::components::A;
 use serde::{Deserialize, Serialize};
 
@@ -238,6 +239,8 @@ pub fn LinkPicker() -> impl IntoView {
     });
 
     view! {
+      <Column class="py-8">
+        <Title text="Add a calendar"/>
         <h1 class="text-title font-semibold mb-2">"Add a calendar"</h1>
         <Suspense fallback=|| view! { <p class="text-body text-ink-48">"Loading…"</p> }>
             {move || Suspend::new(async move {
@@ -267,6 +270,7 @@ pub fn LinkPicker() -> impl IntoView {
                 }
             })}
         </Suspense>
+      </Column>
     }
 }
 

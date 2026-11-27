@@ -1,9 +1,11 @@
+use crate::ui::Column;
 use leptos::prelude::*;
 use leptos_router::components::A;
 
 #[component]
 pub fn NotFound() -> impl IntoView {
     view! {
+      <Column class="py-8">
         <h1 class="text-title font-semibold mb-2">"Not found"</h1>
         <p class="text-body text-ink-48 mb-6">"That page does not exist."</p>
         <A
@@ -15,5 +17,6 @@ pub fn NotFound() -> impl IntoView {
         >
             "Back"
         </A>
+      </Column>
     }
 }
