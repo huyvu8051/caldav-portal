@@ -54,157 +54,111 @@ fn Muted(children: Children) -> impl IntoView {
 /// Structured data, so a search result shows what this is rather than the
 /// first forty words of the page.
 ///
-/// No `offers` block: notion-caldav-saas carries one because it charges, and
-/// claiming a price for something free would be a lie a crawler repeats.
+/// The `description` is notion-caldav-saas's own, minus "free for the first
+/// 6 months" -- that one describes a trial before a charge, and there is no
+/// charge here. Its `offers` block is dropped for the same reason: claiming
+/// a price for something free is a lie a crawler repeats.
 const JSON_LD: &str = r##"{
   "@context": "https://schema.org",
   "@type": "SoftwareApplication",
-  "name": "Notion calendars",
+  "name": "NotionCal",
   "url": "https://notion-caldav-portal.opendiy.vn/",
   "applicationCategory": "BusinessApplication",
-  "operatingSystem": "Web, iOS, macOS, Android",
-  "description": "Sync a Notion page with Apple Calendar, Google Calendar, or any CalDAV app. Edits flow both ways."
+  "operatingSystem": "Web, iOS, Android",
+  "description": "Sync your Notion database with Apple Calendar, Google Calendar, or any CalDAV app. Two-way editing."
 }"##;
 
 #[component]
 pub fn Landing() -> impl IntoView {
     view! {
-        <Title text="Notion calendars"/>
+        <Title text="NotionCal - Sync Notion with your Calendar"/>
         <script type="application/ld+json" inner_html=JSON_LD></script>
 
-        // Hero on parchment. Display type, negative tracking, and enough air
-        // that the sentence is the only thing on screen -- which is the trick
-        // DESIGN.md is describing when it says the chrome recedes.
         <section class="bg-parchment pt-20 pb-16">
             <Column>
-                <Glyph name="calendar_month" class="text-action text-[32px] mb-5"/>
+                // The badge is a pill of text, not a coloured chip: the
+                // accent is reserved for what can be pressed.
+                <div class="inline-flex items-center gap-2 h-9 px-4 rounded-full
+                            bg-canvas border border-hairline text-caption text-ink-48 mb-6">
+                    <span class="material-symbols-outlined text-[16px]" aria-hidden="true">"sync"</span>
+                    "Two-way sync"
+                </div>
                 <h1 class="text-[40px] leading-[1.08] tracking-[-0.4px] font-semibold mb-4">
-                    "Your Notion pages."
-                    <br/>
-                    "In your calendar."
+                    "Turn your Notion database into an online calendar"
                 </h1>
                 <p class="text-tagline text-ink-48 mb-8">
-                    "Edits flow both ways, within a minute."
+                    "Sync your Notion workspace with Apple Calendar, Google Calendar, or any
+                     CalDAV app. Edit freely from either side."
                 </p>
                 <ServerLink
                     href="/signin"
-                    label="Sign in"
+                    label="Log in / Sign up"
                     testid="signin"
                     button=true
                     class="w-full h-12 inline-flex items-center justify-center rounded-full
                            bg-action text-canvas text-body font-semibold no-underline"
                 />
-                <p class="text-caption text-ink-48 mt-4 text-center">
-                    "Free. No card, no subscription."
-                </p>
             </Column>
         </section>
 
-        // Dark tile. The alternation is what gives a page rhythm; one
-        // uninterrupted parchment column is what made this feel empty.
         <section class="bg-tile-1 text-on-dark py-20">
             <Column>
+                <div class="text-caption text-ink-on-dark mb-2">"A simple process"</div>
                 <h2 class="text-[28px] leading-[1.14] tracking-[-0.28px] font-semibold mb-8">
-                    "Four steps, once."
+                    "Start syncing your data in just 3 steps"
                 </h2>
                 <div class="space-y-7">
                     <DarkStep
-                        icon="login" n="1"
-                        title="Sign in"
-                        text="You get one CalDAV username and password, for every calendar on your account."
+                        icon="link"
+                        title="1. Connect Notion"
+                        text="Securely connect your Notion workspace via OAuth."
+                    />
+                    // Not "Pick a database". This service creates its own
+                    // database inside a page you choose, which is the whole
+                    // reason /connect exists to say so -- copying the
+                    // original sentence here would contradict that screen.
+                    <DarkStep
+                        icon="description"
+                        title="2. Pick a page"
+                        text="Choose the page to put the calendar under. A database is created inside it."
                     />
                     <DarkStep
-                        icon="link" n="2"
-                        title="Connect Notion"
-                        text="You choose which pages to share, on Notion's own screen. Nothing else is readable."
-                    />
-                    <DarkStep
-                        icon="database" n="3"
-                        title="Pick a page"
-                        text="A calendar database is created under it, with the columns already set up."
-                    />
-                    <DarkStep
-                        icon="event_available" n="4"
-                        title="Add it to your phone"
-                        text="Paste the URL into the calendar app you already use."
+                        icon="event_available"
+                        title="3. Sync your calendar"
+                        text="Subscribe from your calendar app (Apple, Google, Outlook) via the CalDAV link."
                     />
                 </div>
             </Column>
         </section>
 
-        // Canvas: the three things worth knowing before signing in.
         <section class="bg-canvas py-20">
             <Column>
-                <h2 class="text-[28px] leading-[1.14] tracking-[-0.28px] font-semibold mb-8">
-                    "What you get."
-                </h2>
-                <div class="space-y-5">
+                <div class="space-y-6">
                     <Feature
                         icon="sync_alt"
-                        title="Both directions"
-                        text="Move an event on your phone and the Notion page moves. Edit the page and the
-                              event moves. Neither side is a copy of the other."
-                    />
-                    <Feature
-                        icon="devices"
-                        title="No app to install"
-                        text="It speaks CalDAV, which iPhone, Mac, Thunderbird and Android clients already
-                              speak. There is nothing new on your phone."
+                        title="Real-time two-way sync"
+                        text="Changes in Notion update your calendar instantly, and vice versa. Never miss a deadline."
                     />
                     <Feature
                         icon="security"
-                        title="Only what you shared"
-                        text="It reads and writes the pages you picked on Notion, and nothing else. Revoke
-                              it from Notion at any time."
+                        title="Your data, your control"
+                        text="Only reads/writes the pages you authorize. Disconnect anytime."
+                    />
+                    <Feature
+                        icon="devices"
+                        title="Works with any calendar app"
+                        text="Standard CalDAV protocol."
                     />
                 </div>
-
-                <div class="rounded-lg bg-parchment p-4 mt-8">
-                    <div class="text-fine text-ink-48 mb-1">"The URL you paste"</div>
-                    <div class="text-caption break-all">
-                        "https://caldav.opendiy.vn/calendars/u1/notion-xxxx/"
-                    </div>
+                <div class="rounded-lg bg-parchment p-4 mt-8 text-caption text-ink-48 break-all">
+                    "notion-caldav-portal.opendiy.vn/calendars/..."
                 </div>
             </Column>
         </section>
 
-        // The honest section. Last, in the quietest surface, because it is
-        // for the person deciding -- not the person being persuaded.
-        <section class="bg-parchment py-20">
+        <section class="bg-parchment py-16">
             <Column>
-                <h2 class="text-[28px] leading-[1.14] tracking-[-0.28px] font-semibold mb-6">
-                    "What it will not do."
-                </h2>
-                <div class="space-y-4 text-body text-ink-48">
-                    <p>"It cannot read Notion pages you have not shared with it."</p>
-                    <p>
-                        "It will not map an existing database. It creates its own, so the
-                         columns it depends on are known by id and survive being renamed."
-                    </p>
-                    <p>
-                        "It is a sync, not a backup. A deletion on one side is a deletion
-                         on the other."
-                    </p>
-                    <p>
-                        "It keeps your CalDAV password in readable form, so it can show it
-                         to you again. The "
-                        <A href="/privacy" attr:class="text-action no-underline">"privacy page"</A>
-                        " says exactly what that means."
-                    </p>
-                </div>
-
-                <div class="mt-10">
-                    <ServerLink
-                        href="/signin"
-                        label="Sign in"
-                        testid="signin-bottom"
-                        button=true
-                        class="w-full h-12 inline-flex items-center justify-center rounded-full
-                               bg-action text-canvas text-body font-semibold no-underline"
-                    />
-                </div>
-
-                <div class="mt-10 pt-6 border-t border-hairline flex gap-5 text-caption">
+                <div class="flex gap-5 text-caption">
                     <A href="/privacy" attr:class="text-action no-underline">"Privacy"</A>
                     <A href="/terms" attr:class="text-action no-underline">"Terms"</A>
                 </div>
@@ -215,9 +169,9 @@ pub fn Landing() -> impl IntoView {
 
 /// A Material Symbol.
 ///
-/// `aria-hidden`, always: every one of these sits beside text that already
-/// says the same thing, so announcing the ligature name would be a second
-/// reading of the same line.
+/// `aria-hidden`, always: each sits beside text that already says the same
+/// thing, so announcing the ligature name would be a second reading of one
+/// line.
 #[component]
 fn Glyph(#[prop(into)] name: String, #[prop(into)] class: String) -> impl IntoView {
     view! {
@@ -225,15 +179,11 @@ fn Glyph(#[prop(into)] name: String, #[prop(into)] class: String) -> impl IntoVi
     }
 }
 
-/// A numbered step on a dark tile.
-///
-/// The number and glyph sit in `ink-on-dark`, not the accent: on a dark
-/// surface the accent is reserved for the thing you can press, and nothing
-/// here is pressable.
+/// A step on a dark tile. The glyph is `ink-on-dark`, not the accent: on a
+/// dark surface the accent means "pressable", and nothing here is.
 #[component]
 fn DarkStep(
     #[prop(into)] icon: String,
-    #[prop(into)] n: String,
     #[prop(into)] title: String,
     #[prop(into)] text: String,
 ) -> impl IntoView {
@@ -241,9 +191,7 @@ fn DarkStep(
         <div class="flex gap-4">
             <Glyph name=icon class="text-ink-on-dark text-[22px] shrink-0 mt-0.5"/>
             <div>
-                <div class="text-body font-semibold text-on-dark mb-1">
-                    {n}". "{title}
-                </div>
+                <div class="text-body font-semibold text-on-dark mb-1">{title}</div>
                 <div class="text-body text-ink-on-dark">{text}</div>
             </div>
         </div>
@@ -270,59 +218,81 @@ fn Feature(
 #[component]
 pub fn Privacy() -> impl IntoView {
     view! {
-        <Prose title="Privacy">
+        <Prose title="Privacy Policy">
             <Muted>"Last updated: 2026-11-27"</Muted>
             <p>
-                "This portal connects a Notion workspace to a CalDAV calendar. Here is
-                 everything it stores about you and why."
+                "NotionCal (\"the Service\") turns a Notion database into a CalDAV feed and a
+                 browser calendar view. This page explains what data we collect and how we
+                 use it."
             </p>
 
-            <Heading text="What it stores"/>
+            <Heading text="What we collect"/>
             <p>
-                <b>"Account."</b>
-                " Your email address and the identifier your sign-in provider issues.
-                 Used to recognise you on the next visit, and for nothing else."
+                <b>"Account: "</b>
+                "the email address from your login (via our self-hosted Keycloak identity
+                 provider) — used only to identify your account."
             </p>
             <p>
-                <b>"Notion access."</b>
-                " When you connect a workspace, the access token Notion issues, with the
-                 workspace id and name. That token is what lets this read and write the
-                 pages you selected -- and only those."
+                <b>"Notion access: "</b>
+                "when you connect your Notion workspace, we store the OAuth access token
+                 Notion issues us, along with your workspace id/name and integration bot id.
+                 This token is what lets the Service read and write the specific pages you
+                 granted access to."
             </p>
             <p>
-                <b>"Calendars."</b>
-                " For each page you link: the page id, a display name, and the calendar
-                 path created for it."
+                <b>"Calendar configuration: "</b>
+                "for each Notion page you choose to sync, we store its page id, the calendar
+                 path created for it, and a display name."
             </p>
             <p>
-                <b>"Your CalDAV password, in readable form."</b>
-                " This is the part worth reading twice. The portal keeps the password
-                 itself, not only a hash of it, because it shows it to you again when you
-                 come back. The calendar server separately keeps an argon2 hash, which is
-                 the copy that actually checks a login. If you would rather no readable
-                 copy existed, do not use this service: there is no setting that changes
-                 it."
+                // Changed, and the only sentence in this policy that is not
+                // the original. It read: "Only a salted hash (Argon2) of the
+                // password is stored — the plaintext is shown to you once, at
+                // creation time, and never again." That is true of
+                // notion-caldav-saas and false here, and a privacy policy
+                // that misstates how a credential is stored is the one kind
+                // of copy that must not be pasted.
+                <b>"CalDAV credentials: "</b>
+                "we generate a random username/password for your account so you can subscribe
+                 from Apple/Google Calendar or any CalDAV client. We store the password itself,
+                 not only a hash, so that it can be shown to you again whenever you return.
+                 The calendar server separately stores a salted Argon2 hash, and that is the
+                 copy a login is checked against."
             </p>
 
-            <Heading text="What it does not store"/>
+            <Heading text="What we don't collect"/>
+            <p class="text-ink-48">"No card numbers, bank details, or billing addresses — the Service is free and takes no payments."</p>
+            <p class="text-ink-48">"No analytics or advertising trackers."</p>
+            <p class="text-ink-48">"No data is sold or shared with third parties for marketing."</p>
+
+            <Heading text="How we use it"/>
             <p class="text-ink-48">
-                "No card numbers or billing details -- there are no payments. No analytics
-                 or advertising trackers. Nothing is sold or shared for marketing."
+                "Solely to operate the Service: fetching events from your Notion database,
+                 converting them to CalDAV/iCalendar format, and keeping them in sync via
+                 periodic polling."
             </p>
 
-            <Heading text="Where it lives"/>
+            <Heading text="Where it's stored"/>
             <p class="text-ink-48">
-                "A private PostgreSQL database, not reachable from the internet. The only
-                 third party involved is Notion's own API, which is unavoidable, and the
-                 infrastructure the servers run on."
+                "All data lives in a private PostgreSQL database we operate, not exposed to
+                 the public internet, reachable only by the Service itself. We do not use
+                 third-party data processors beyond Notion's own API (needed to read/write
+                 your workspace) and the infrastructure hosting our servers."
             </p>
 
             <Heading text="Your controls"/>
             <p class="text-ink-48">
-                "Revoke access at any time from Notion's own Connections settings; that
-                 invalidates the token held here immediately. To delete the account and
-                 everything with it, ask."
+                "You can revoke the Service's access at any time from Notion's own
+                 \"Connections\" settings in your workspace — this immediately invalidates the
+                 access token we hold."
             </p>
+            <p class="text-ink-48">
+                "To delete your account and all associated data (connections, calendars,
+                 credentials), email us at the address below."
+            </p>
+
+            <Heading text="Contact"/>
+            <p class="text-ink-48">"Questions about this policy: huyvu8051@gmail.com"</p>
         </Prose>
     }
 }
@@ -330,40 +300,68 @@ pub fn Privacy() -> impl IntoView {
 #[component]
 pub fn Terms() -> impl IntoView {
     view! {
-        <Prose title="Terms">
+        <Prose title="Terms of Service">
             <Muted>"Last updated: 2026-11-27"</Muted>
+            <p>"By using NotionCal (\"the Service\"), you agree to these terms."</p>
 
-            <Heading text="The service"/>
+            <Heading text="The Service"/>
             <p>
-                "It keeps a Notion database and a CalDAV calendar saying the same thing.
-                 It is offered as it is, with no uptime promise."
+                "The Service connects to a Notion workspace you authorize, and exposes the
+                 page(s) you choose as a CalDAV feed. There is no guaranteed uptime or support
+                 response time."
             </p>
 
             <Heading text="Price"/>
+            // The original reads "Price and billing" and describes a $1/year
+            // subscription through Paddle, with a link to a Refund Policy.
+            // None of that exists here, and a terms page describing a charge
+            // that cannot occur is worse than one that says so plainly.
             <p>
-                "There is none. No subscription, no payment, nothing to cancel. If that
-                 ever changes, it will not change retroactively for data already here."
+                "The Service is free. There is no subscription, no card, and nothing to
+                 cancel."
             </p>
 
-            <Heading text="Your side"/>
+            <Heading text="Your responsibilities"/>
             <p class="text-ink-48">
-                "Keep your CalDAV password to yourself -- it reaches every calendar on
-                 your account. Do not use this to store anything you cannot afford to
-                 lose: it is a sync, not a backup, and a sync faithfully propagates a
-                 deletion."
+                "You're responsible for the content of the Notion pages you connect, and for
+                 keeping your CalDAV credentials confidential."
+            </p>
+            <p class="text-ink-48">
+                "Don't use the Service to store or distribute illegal content, or in a way
+                 that places excessive load on it (e.g. automated scraping outside normal
+                 calendar-client sync behavior)."
+            </p>
+            <p class="text-ink-48">
+                "You must have the right to grant the Service access to any Notion workspace
+                 you connect."
             </p>
 
             <Heading text="No warranty"/>
             <p class="text-ink-48">
-                "No warranty of any kind. Syncing involves another company's API and your
-                 own network, and either can fail in ways nothing here can prevent."
+                "The Service is provided \"as is\" without warranty of any kind. We don't
+                 guarantee it will be uninterrupted, error-free, or that data will never be
+                 lost — Notion remains the source of truth for your data, and we recommend not
+                 relying on the Service as your only backup of important events."
             </p>
 
-            <Heading text="Ending it"/>
+            <Heading text="Termination"/>
             <p class="text-ink-48">
-                "Disconnect in Notion, or ask for the account to be deleted. Your Notion
-                 pages are yours and stay where they are."
+                "We may suspend or terminate access to the Service for any account found
+                 abusing it (as described above), or discontinue the Service entirely. You may
+                 stop using the Service and revoke its Notion access at any time."
             </p>
+
+            <Heading text="Changes"/>
+            <p class="text-ink-48">
+                "We may update these terms as the Service evolves; continued use after a change
+                 means you accept the updated terms."
+            </p>
+
+            <Heading text="Governing law"/>
+            <p class="text-ink-48">"These terms are governed by the laws of Vietnam."</p>
+
+            <Heading text="Contact"/>
+            <p class="text-ink-48">"huyvu8051@gmail.com"</p>
         </Prose>
     }
 }
