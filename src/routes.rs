@@ -91,7 +91,11 @@ pub async fn callback(
     };
 
     let sid = crate::oidc::random_token();
-    if let Err(e) = server.db.create_session(&sid, account_id).await {
+    if let Err(e) = server
+        .db
+        .create_session(&sid, account_id, &identity.id_token)
+        .await
+    {
         tracing::error!(error = %e, "could not create the session");
         return Redirect::to("/?error=db").into_response();
     }
@@ -104,12 +108,30 @@ pub async fn callback(
 }
 
 pub async fn signout(Extension(server): Extension<ServerState>, jar: CookieJar) -> Response {
+    let mut id_token = None;
     if let Some(c) = jar.get(SESSION_COOKIE) {
+        // Read before the delete, and the delete happens either way: a logout
+        // that leaves the local session alive because the provider hint could
+        // not be fetched is worse than one that cannot reach the provider.
+        id_token = server.db.session_id_token(c.value()).await.ok().flatten();
         // Deleted server-side as well as in the browser. Clearing only the
         // cookie leaves a session id that still works for anyone holding it.
         let _ = server.db.delete_session(c.value()).await;
     }
-    (jar.remove(Cookie::from(SESSION_COOKIE)), Redirect::to("/")).into_response()
+
+    // And then out to Keycloak, which is the half that was missing. Deleting
+    // this portal's session left Keycloak's own SSO session intact, so the
+    // next sign-in was recognised silently and came back as the same account
+    // -- no screen, and no way to choose another. "Log out" that logs you
+    // straight back in is the worst kind of working.
+    let destination = crate::oidc::logout_url(&server.oidc, id_token.as_deref(), &server.base_url)
+        .unwrap_or_else(|| "/".to_string());
+
+    (
+        jar.remove(Cookie::from(SESSION_COOKIE)),
+        Redirect::to(&destination),
+    )
+        .into_response()
 }
 
 /// Resolves the session cookie to an account. Shared by the Notion routes,

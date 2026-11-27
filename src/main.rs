@@ -81,6 +81,7 @@ async fn main() -> anyhow::Result<()> {
         // Driven by the origin rather than guessed: marking the cookie Secure
         // over plain http has the browser drop it, and the login then fails
         // by silently never sticking.
+        base_url: base_url.clone(),
         secure_cookies: base_url.starts_with("https://"),
     };
 

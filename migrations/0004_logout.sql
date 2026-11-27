@@ -1,0 +1,11 @@
+-- The ID token, kept for RP-initiated logout.
+--
+-- Signing out used to delete this portal's session and nothing else, which
+-- left Keycloak's own SSO session intact: the next sign-in was re-recognised
+-- silently and came back as the same account, with no screen in between and
+-- no way to choose another. Ending the session at the provider needs
+-- `id_token_hint`, and that is this.
+--
+-- It is a credential of sorts, so it dies with the session row rather than
+-- outliving it.
+ALTER TABLE session ADD COLUMN IF NOT EXISTS id_token text;

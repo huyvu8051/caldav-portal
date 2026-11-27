@@ -70,6 +70,8 @@ impl Db {
             include_str!("../migrations/0002_notion.sql"),
             "\n",
             include_str!("../migrations/0003_links.sql"),
+            "\n",
+            include_str!("../migrations/0004_logout.sql"),
         ))
         .execute(&mut *tx)
         .await?;
@@ -138,15 +140,32 @@ impl Db {
         Ok(())
     }
 
-    pub async fn create_session(&self, id: &str, account_id: i64) -> Result<()> {
+    pub async fn create_session(&self, id: &str, account_id: i64, id_token: &str) -> Result<()> {
         let expires: DateTime<Utc> = Utc::now() + Duration::days(SESSION_TTL_DAYS);
-        sqlx::query("INSERT INTO session (id, account_id, expires_at) VALUES ($1, $2, $3)")
-            .bind(id)
-            .bind(account_id)
-            .bind(expires)
-            .execute(&self.pool)
-            .await?;
+        sqlx::query(
+            "INSERT INTO session (id, account_id, expires_at, id_token) VALUES ($1, $2, $3, $4)",
+        )
+        .bind(id)
+        .bind(account_id)
+        .bind(expires)
+        .bind(id_token)
+        .execute(&self.pool)
+        .await?;
         Ok(())
+    }
+
+    /// The ID token for this session, for `id_token_hint` on the way out.
+    ///
+    /// Read before the session is deleted, obviously -- and the deletion still
+    /// happens whether or not this returns anything, because a logout that
+    /// leaves the local session alive because the provider hint was missing
+    /// is worse than one that cannot reach the provider.
+    pub async fn session_id_token(&self, id: &str) -> Result<Option<String>> {
+        let row = sqlx::query("SELECT id_token FROM session WHERE id = $1")
+            .bind(id)
+            .fetch_optional(&self.pool)
+            .await?;
+        Ok(row.and_then(|r| r.get::<Option<String>, _>("id_token")))
     }
 
     /// Expiry is checked in the query, not after it. A session read that

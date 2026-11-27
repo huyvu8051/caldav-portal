@@ -18,5 +18,9 @@ pub struct ServerState {
     /// Whether to mark the session cookie `Secure`. False over plain HTTP in
     /// development, where marking it would have the browser drop it and the
     /// login would silently never stick.
+    /// This portal's own externally reachable origin. Keycloak sends the
+    /// browser here after ending the session, and it has to match one of the
+    /// client's registered post-logout redirect URIs exactly.
+    pub base_url: String,
     pub secure_cookies: bool,
 }

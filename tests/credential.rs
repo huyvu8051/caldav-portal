@@ -104,7 +104,7 @@ async fn an_expired_session_does_not_resolve_to_an_account() {
     let db = db().await;
     let id = db.upsert_account(&sub(), "a@example.com").await.unwrap();
     let sid = caldav_portal::oidc::random_token();
-    db.create_session(&sid, id).await.unwrap();
+    db.create_session(&sid, id, "fake.id.token").await.unwrap();
     assert_eq!(db.session_account(&sid).await.unwrap(), Some(id));
 
     db.expire_session_for_test(&sid).await.unwrap();
@@ -120,7 +120,7 @@ async fn signing_out_invalidates_the_session_server_side() {
     let db = db().await;
     let id = db.upsert_account(&sub(), "a@example.com").await.unwrap();
     let sid = caldav_portal::oidc::random_token();
-    db.create_session(&sid, id).await.unwrap();
+    db.create_session(&sid, id, "fake.id.token").await.unwrap();
     db.delete_session(&sid).await.unwrap();
     assert_eq!(
         db.session_account(&sid).await.unwrap(),
@@ -386,5 +386,31 @@ fn server_routes_are_only_linked_through_server_link() {
     assert!(
         offenders.is_empty(),
         "use ui::ServerLink for these -- {offenders:#?}"
+    );
+}
+
+#[tokio::test]
+async fn the_id_token_is_kept_for_logout_and_dies_with_the_session() {
+    // Signing out has to end the session at Keycloak too, and that needs
+    // `id_token_hint`. Without it the provider keeps its own SSO session, the
+    // next sign-in is recognised silently, and "log out" logs you straight
+    // back in as the same account.
+    let db = db().await;
+    let id = db.upsert_account(&sub(), "a@example.com").await.unwrap();
+    let sid = caldav_portal::oidc::random_token();
+
+    db.create_session(&sid, id, "header.payload.signature")
+        .await
+        .unwrap();
+    assert_eq!(
+        db.session_id_token(&sid).await.unwrap().as_deref(),
+        Some("header.payload.signature")
+    );
+
+    db.delete_session(&sid).await.unwrap();
+    assert_eq!(
+        db.session_id_token(&sid).await.unwrap(),
+        None,
+        "it is a credential; it must not outlive the session row"
     );
 }

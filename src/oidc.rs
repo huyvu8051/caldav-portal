@@ -14,11 +14,12 @@
 //!
 //! All three live in `login_flow`, and reading them deletes the row.
 
-use openidconnect::core::{CoreAuthenticationFlow, CoreClient, CoreProviderMetadata};
+use openidconnect::core::{CoreAuthenticationFlow, CoreClient};
 use openidconnect::{
     ClientId, ClientSecret, CsrfToken, IssuerUrl, Nonce, PkceCodeChallenge, PkceCodeVerifier,
     RedirectUrl, Scope, TokenResponse,
 };
+use openidconnect::{LogoutRequest, PostLogoutRedirectUrl, ProviderMetadataWithLogout};
 
 pub type Client = CoreClient<
     openidconnect::EndpointSet,
@@ -33,12 +34,23 @@ pub type Client = CoreClient<
 pub struct Oidc {
     pub client: Client,
     pub http: openidconnect::reqwest::Client,
+    pub client_id: String,
+    /// Where to end the session at the provider.
+    ///
+    /// `None` only if Keycloak stops advertising it, which would be a
+    /// configuration change rather than a transient failure -- so signing out
+    /// degrades to clearing the local session, which is what it did before,
+    /// rather than failing.
+    pub end_session: Option<openidconnect::EndSessionUrl>,
 }
 
 #[derive(Debug)]
 pub struct Identity {
     pub subject: String,
     pub email: String,
+    /// Kept for `id_token_hint` when signing out. Without it Keycloak shows a
+    /// "do you want to log out?" confirmation instead of simply doing it.
+    pub id_token: String,
 }
 
 /// Discovery with a bounded retry.
@@ -63,15 +75,24 @@ pub async fn connect(
     let mut backoff = std::time::Duration::from_secs(2);
     let mut last: Option<String> = None;
     for attempt in 1..=8u32 {
-        match CoreProviderMetadata::discover_async(issuer_url.clone(), &http).await {
+        // ProviderMetadataWithLogout, not CoreProviderMetadata: the core type
+        // does not carry `end_session_endpoint`, which is an RP-Initiated
+        // Logout extension and the one field signing out depends on.
+        match ProviderMetadataWithLogout::discover_async(issuer_url.clone(), &http).await {
             Ok(meta) => {
+                let end_session = meta.additional_metadata().end_session_endpoint.clone();
                 let client = CoreClient::from_provider_metadata(
                     meta,
                     ClientId::new(client_id.to_string()),
                     Some(ClientSecret::new(client_secret.to_string())),
                 )
                 .set_redirect_uri(RedirectUrl::new(redirect_url.to_string())?);
-                return Ok(Oidc { client, http });
+                return Ok(Oidc {
+                    client,
+                    http,
+                    client_id: client_id.to_string(),
+                    end_session,
+                });
             }
             Err(e) => {
                 last = Some(e.to_string());
@@ -143,7 +164,34 @@ pub async fn finish(
     Ok(Identity {
         subject: claims.subject().as_str().to_string(),
         email,
+        id_token: id_token.to_string(),
     })
+}
+
+/// Where to send the browser to end the session at Keycloak.
+///
+/// Deleting this portal's session is not signing out. Keycloak keeps its own
+/// SSO session, so the next authorize request is recognised silently and
+/// returns the same account -- no screen, no way to pick another. That is the
+/// bug this exists for.
+pub fn logout_url(oidc: &Oidc, id_token: Option<&str>, post_logout: &str) -> Option<String> {
+    let endpoint = oidc.end_session.clone()?;
+    let request: LogoutRequest = endpoint.into();
+    let mut url = request
+        .set_client_id(openidconnect::ClientId::new(oidc.client_id.clone()))
+        .set_post_logout_redirect_uri(PostLogoutRedirectUrl::new(post_logout.to_string()).ok()?)
+        .http_get_url();
+
+    // Appended rather than passed to `set_id_token_hint`, which takes a
+    // parsed `IdToken` and would mean verifying the signature again on a
+    // path where the token is only a hint. Keycloak reads the raw string.
+    //
+    // Without it Keycloak shows a "do you want to log out?" confirmation
+    // rather than simply logging out.
+    if let Some(token) = id_token {
+        url.query_pairs_mut().append_pair("id_token_hint", token);
+    }
+    Some(url.to_string())
 }
 
 /// Unguessable identifiers for sessions. 256 bits from the OS, hex-encoded,
