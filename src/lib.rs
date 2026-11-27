@@ -238,6 +238,7 @@ pub fn App() -> impl IntoView {
                     <Route path=StaticSegment("terms") view=pages::legal::Terms/>
                     <Route path=StaticSegment("me") view=pages::me::Me/>
                     <Route path=StaticSegment("add") view=pages::link::LinkPicker/>
+                    <Route path=StaticSegment("connect") view=pages::connect::Connect/>
                 </Routes>
             </main>
         </Router>

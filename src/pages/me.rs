@@ -400,14 +400,18 @@ fn ConnectButton(#[prop(into)] label: String) -> impl IntoView {
     // A link, not a button with an Action: the flow is a full-page redirect
     // to Notion, so there is no in-flight state for a spinner to describe.
     view! {
-        <ServerLink
-            href="/notion/connect"
-            label=label
-            testid="connect-notion"
-            button=true
-            class="w-full h-12 inline-flex items-center justify-center rounded-full
-                   bg-canvas border border-hairline text-action text-body no-underline"
-        />
+        // To the explanation, not straight to Notion. Notion's picker lists
+        // pages and databases and cannot be filtered, so the only place to
+        // say which one works is before the redirect.
+        <A
+            href="/connect"
+            attr:data-testid="connect-notion"
+            attr:role="button"
+            attr:class="w-full h-12 inline-flex items-center justify-center rounded-full
+                        bg-canvas border border-hairline text-action text-body no-underline"
+        >
+            {label}
+        </A>
     }
 }
 

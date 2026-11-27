@@ -43,6 +43,40 @@ fn client() -> reqwest::Client {
         .expect("reqwest client builds")
 }
 
+/// How many data sources this grant can see.
+///
+/// Only ever used to explain an empty page list. Someone who shared a
+/// database instead of a page gets a picker with nothing in it, and "no pages
+/// found" is a true statement that answers none of their questions -- the
+/// useful sentence is "you shared 3 databases and no pages".
+pub async fn data_source_count(token: &str) -> Result<usize, Error> {
+    let res = client()
+        .post(format!("{API}/search"))
+        .bearer_auth(token)
+        .header("Notion-Version", VERSION)
+        .json(&serde_json::json!({
+            "filter": { "value": "data_source", "property": "object" },
+            "page_size": 20,
+        }))
+        .send()
+        .await
+        .map_err(|e| Error::Other(e.to_string()))?;
+
+    if res.status() == reqwest::StatusCode::UNAUTHORIZED {
+        return Err(Error::Unauthorized);
+    }
+    if !res.status().is_success() {
+        // Not fatal: this only decorates an error message. Reporting zero is
+        // better than turning "no pages" into "something went wrong".
+        return Ok(0);
+    }
+    let body: SearchResponse = res
+        .json()
+        .await
+        .map_err(|_| Error::Other("search".into()))?;
+    Ok(body.results.len())
+}
+
 /// Pages this grant can see, newest first, for the "where should the calendar
 /// live" picker.
 ///

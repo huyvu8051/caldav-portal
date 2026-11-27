@@ -17,6 +17,10 @@ pub struct Choices {
     pub connection_id: i64,
     pub workspace: String,
     pub pages: Vec<NotionPage>,
+    /// Databases this grant can see. Only meaningful when `pages` is empty:
+    /// it is the difference between "you shared nothing" and "you shared the
+    /// wrong kind of thing".
+    pub databases: usize,
 }
 
 /// Pages the user could put a calendar under, for their first healthy
@@ -50,17 +54,30 @@ pub async fn notion_choices() -> Result<Option<Choices>, ServerFnError> {
         .ok_or_else(|| ServerFnError::new("connection vanished"))?;
 
     match crate::notion_api::pages(&token).await {
-        Ok(pages) => Ok(Some(Choices {
-            connection_id: conn.id,
-            workspace: conn.workspace_name,
-            pages: pages
-                .into_iter()
-                .map(|p| NotionPage {
-                    id: p.id,
-                    title: p.title,
-                })
-                .collect(),
-        })),
+        Ok(pages) => {
+            // Only asked when there is an empty list to explain -- a second
+            // Notion round trip on every visit would be a cost paid by
+            // everyone for a message almost nobody needs.
+            let databases = if pages.is_empty() {
+                crate::notion_api::data_source_count(&token)
+                    .await
+                    .unwrap_or(0)
+            } else {
+                0
+            };
+            Ok(Some(Choices {
+                connection_id: conn.id,
+                workspace: conn.workspace_name,
+                pages: pages
+                    .into_iter()
+                    .map(|p| NotionPage {
+                        id: p.id,
+                        title: p.title,
+                    })
+                    .collect(),
+                databases,
+            }))
+        }
         Err(crate::notion_api::Error::Unauthorized) => {
             // Recorded, not just reported. The mark is what stops the bridge
             // retrying a dead grant, and the only place that learns the token
@@ -281,6 +298,8 @@ fn PageList(
 ) -> impl IntoView {
     let result = link.value();
     let conn = choices.connection_id;
+    let is_empty = choices.pages.is_empty();
+    let db_count = choices.databases;
     view! {
         <p class="text-body text-ink-48 mb-6">
             "The calendar database is created under the page you pick, in "
@@ -304,6 +323,10 @@ fn PageList(
                     None => view! { <div/> }.into_any(),
                 }}
             </div>
+        </Show>
+
+        <Show when=move || is_empty>
+            <EmptyPicker databases=db_count/>
         </Show>
 
         <div class="rounded-lg bg-canvas border border-hairline divide-y divide-divider-soft">
@@ -331,6 +354,61 @@ fn PageList(
                     }
                 }
             </For>
+        </div>
+    }
+}
+
+/// Why the list is empty, which is not the same question as what is in it.
+///
+/// Notion's consent dialog lists pages and databases together and cannot be
+/// filtered, so sharing a database instead of a page is the easiest mistake
+/// to make here -- and its symptom is a blank screen. Saying "you shared 3
+/// databases and no pages" turns that into an instruction.
+#[component]
+fn EmptyPicker(databases: usize) -> impl IntoView {
+    // Computed before the macro: `databases > 0` inside `view!` has its `>`
+    // read as the end of a tag.
+    let shared_databases = databases > 0;
+    let line = format!(
+        "You shared {databases} database{} and no pages.",
+        if databases == 1 { "" } else { "s" },
+    );
+
+    view! {
+        <div class="rounded-lg bg-canvas border border-hairline p-5 mb-6">
+            <Show
+                when=move || shared_databases
+                fallback=|| {
+                    view! {
+                        <div>
+                            <p data-testid="empty-none" class="text-body mb-2">
+                                "No pages shared yet."
+                            </p>
+                            <p class="text-body text-ink-48">
+                                "Go back to Notion and share at least one page with this connection."
+                            </p>
+                        </div>
+                    }
+                }
+            >
+                <div>
+                    <p data-testid="empty-databases" class="text-body mb-2">{line.clone()}</p>
+                    <p class="text-body text-ink-48">
+                        "This needs a page to put a calendar under -- it creates its own
+                         database inside it. Share a page instead; an empty one is fine."
+                    </p>
+                </div>
+            </Show>
+            <div class="mt-4">
+                <ServerLink
+                    href="/notion/connect"
+                    label="Change what is shared"
+                    testid="reshare"
+                    button=true
+                    class="w-full h-12 inline-flex items-center justify-center rounded-full
+                           bg-action text-canvas text-body font-semibold no-underline"
+                />
+            </div>
         </div>
     }
 }
