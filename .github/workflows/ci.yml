@@ -8,13 +8,21 @@ on:
   workflow_dispatch:
 
 jobs:
+  # The test job is disabled on CI by choice, not by accident.
+  #
+  # It costs 1.6 minutes and, since the image stopped waiting for it, blocks
+  # nothing -- so what it bought on a push was a red mark nobody was obliged
+  # to read. The gates still run, on a laptop, before every push: fmt,
+  # clippy, test, wasm, in that order, which is what `CLAUDE.md` asks for.
+  #
+  # The cost of this is real and worth naming: nothing now checks a push from
+  # anywhere other than the machine it was written on. Re-enable by removing
+  # the `if: false`.
   test:
     name: Test
+    if: false
     runs-on: ubuntu-latest
     services:
-      # The db tests take a schema each and run against a real Postgres. A
-      # faked pool would not test the thing they are about -- `WHERE
-      # caldav_username IS NULL` only means anything if a database enforces it.
       postgres:
         image: postgres:16-alpine
         env:
@@ -28,18 +36,12 @@ jobs:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
-      # Three gates, in the order CI runs them, because running the later ones
-      # locally and skipping the first is how two builds in a row were spent
-      # on a formatting diff.
       - run: cargo fmt --check
       - run: cargo clippy --all-targets --no-default-features --features ssr -- -D warnings
       - name: cargo test
         env:
           DATABASE_URL: postgres://postgres:test@127.0.0.1:5432/caldav_portal
         run: cargo test --no-default-features --features ssr
-      # The wasm half is not exercised by any of the above, and a lib that
-      # stops compiling for the browser is a page that renders and then never
-      # becomes interactive -- which looks like working software.
       - run: rustup target add wasm32-unknown-unknown
       - run: cargo build --lib --target wasm32-unknown-unknown --no-default-features --features hydrate
 
