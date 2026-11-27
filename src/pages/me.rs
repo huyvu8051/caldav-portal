@@ -13,16 +13,9 @@ pub struct CalendarLink {
     /// The collection path. Joined with the server origin for display,
     /// because a client that cannot discover needs the whole URL.
     pub uri: String,
-}
-
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct Workspace {
-    pub id: i64,
-    pub name: String,
-    /// `true` when Notion has refused this token. Shown rather than hidden:
-    /// a calendar that silently stopped updating is the failure this whole
-    /// field exists to prevent.
-    pub needs_reconnect: bool,
+    /// Where this calendar lives in Notion. Empty when the link predates
+    /// template duplication and has no database recorded.
+    pub notion_url: String,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -31,7 +24,15 @@ pub struct Credentials {
     pub server: String,
     pub username: String,
     pub password: String,
-    pub workspaces: Vec<Workspace>,
+    /// `true` when Notion has refused a connection, so the calendars under
+    /// it have stopped syncing.
+    ///
+    /// All that survives of the workspace list: a name nobody can act on was
+    /// three queries a page load, and this is the one fact that is worth
+    /// interrupting someone for. A calendar that quietly stops updating is
+    /// the failure this whole product is arranged against; saying nothing
+    /// here is how it would win.
+    pub notion_broken: bool,
     pub links: Vec<CalendarLink>,
 }
 
@@ -62,7 +63,7 @@ pub async fn my_credentials() -> Result<Option<Credentials>, ServerFnError> {
             server: server.caldav_public_url.clone(),
             username: u.clone(),
             password: p.clone(),
-            workspaces: workspaces(&server, account_id).await?,
+            notion_broken: notion_broken(&server, account_id).await?,
             links: links(&server, account_id).await?,
         }));
     }
@@ -96,7 +97,7 @@ pub async fn my_credentials() -> Result<Option<Credentials>, ServerFnError> {
             server: server.caldav_public_url.clone(),
             username: again.caldav_username.unwrap_or_default(),
             password: again.caldav_password.unwrap_or_default(),
-            workspaces: workspaces(&server, account_id).await?,
+            notion_broken: notion_broken(&server, account_id).await?,
             links: links(&server, account_id).await?,
         }));
     }
@@ -126,7 +127,7 @@ pub async fn my_credentials() -> Result<Option<Credentials>, ServerFnError> {
         server: server.caldav_public_url.clone(),
         username,
         password,
-        workspaces: workspaces(&server, account_id).await?,
+        notion_broken: notion_broken(&server, account_id).await?,
         links: links(&server, account_id).await?,
     }))
 }
@@ -148,35 +149,29 @@ async fn links(
             id: l.id,
             name: l.display_name,
             uri: l.calendar_uri,
+            // notion.so accepts the id with the dashes stripped, which is
+            // the form Notion's own links use.
+            notion_url: l
+                .notion_database_id
+                .map(|id| format!("https://notion.so/{}", id.replace('-', "")))
+                .unwrap_or_default(),
         })
         .collect())
 }
 
-/// The Notion workspaces this account has connected.
+/// Whether any Notion connection has been refused.
 #[cfg(feature = "ssr")]
-async fn workspaces(
+async fn notion_broken(
     server: &crate::state::ServerState,
     account_id: i64,
-) -> Result<Vec<Workspace>, ServerFnError> {
-    let rows = server
+) -> Result<bool, ServerFnError> {
+    Ok(server
         .db
         .notion_connections(account_id)
         .await
-        .map_err(|e| ServerFnError::new(format!("could not list connections: {e}")))?;
-    Ok(rows
-        .into_iter()
-        .map(|c| Workspace {
-            id: c.id,
-            // Notion omits the name for some grants; the id is never a good
-            // thing to show a person, but it beats an empty row.
-            name: if c.workspace_name.is_empty() {
-                c.workspace_id
-            } else {
-                c.workspace_name
-            },
-            needs_reconnect: c.token_invalid_since.is_some(),
-        })
-        .collect())
+        .map_err(|e| ServerFnError::new(format!("could not list connections: {e}")))?
+        .iter()
+        .any(|c| c.token_invalid_since.is_some()))
 }
 
 /// Issue a new password, in caldav-rs first.
@@ -217,7 +212,7 @@ pub async fn rotate_password() -> Result<Credentials, ServerFnError> {
         server: server.caldav_public_url.clone(),
         username,
         password,
-        workspaces: workspaces(&server, account_id).await?,
+        notion_broken: notion_broken(&server, account_id).await?,
         links: links(&server, account_id).await?,
     })
 }
@@ -339,18 +334,34 @@ fn CredentialCard(
             </p>
         </div>
 
+        <Show when=move || credentials.get().notion_broken>
+            <div data-testid="needs-reconnect"
+                 class="rounded-lg bg-canvas border border-hairline p-4 mt-10">
+                <p class="text-body mb-3">
+                    "Notion refused a connection. Calendars under it have stopped syncing."
+                </p>
+                <ServerLink
+                    href="/notion/connect"
+                    label="Reconnect Notion"
+                    testid="reconnect-notion"
+                    button=true
+                    class="w-full h-11 inline-flex items-center justify-center rounded-full
+                           bg-action text-canvas text-body font-semibold no-underline"
+                />
+            </div>
+        </Show>
+
         <h2 class="text-tagline font-semibold mt-10 mb-2">"Calendars"</h2>
         <LinkList
             links=Signal::derive(move || credentials.get().links)
             base=Signal::derive(move || credentials.get().server)
             // Unused distinction now: connecting *is* adding. Kept as a
             // signal only so the empty-state wording can differ.
-            needs_notion=Signal::derive(move || {
-                !credentials.get().workspaces.iter().any(|w| !w.needs_reconnect)
-            })
+            // Only changes the empty-state wording: connecting is adding,
+            // so the button goes to the same place either way.
+            needs_notion=Signal::derive(move || credentials.get().links.is_empty())
         />
 
-        <NotionSection workspaces=Signal::derive(move || credentials.get().workspaces)/>
 
         <div class="mt-8">
             <ServerLink
@@ -360,53 +371,6 @@ fn CredentialCard(
                 class="text-body text-action no-underline inline-flex items-center h-11"
             />
         </div>
-    }
-}
-
-/// Which Notion workspaces are connected, and whether any has stopped
-/// working.
-///
-/// Status, not a call to action. Its connect button used to sit here beside
-/// the one on the calendar list, which read as two equal choices when only
-/// one of them is ever what someone came to do. The only button left is the
-/// repair, and it appears only when something is broken.
-#[component]
-fn NotionSection(#[prop(into)] workspaces: Signal<Vec<Workspace>>) -> impl IntoView {
-    let broken = Signal::derive(move || workspaces.get().iter().any(|w| w.needs_reconnect));
-    view! {
-        <Show when=move || !workspaces.get().is_empty()>
-            <h2 class="text-tagline font-semibold mt-10 mb-2">"Notion"</h2>
-            <div class="rounded-lg bg-canvas border border-hairline divide-y divide-divider-soft">
-                <For each=move || workspaces.get() key=|w| (w.id, w.needs_reconnect) let:w>
-                    <div class="px-4 py-3">
-                        <div data-testid="workspace" class="text-body break-all">
-                            {w.name.clone()}
-                        </div>
-                        <Show when=move || w.needs_reconnect>
-                            // Said plainly, not as a warning glyph: the point
-                            // is that someone finds out here rather than from
-                            // a calendar that quietly stopped.
-                            <div data-testid="needs-reconnect" class="text-fine text-ink-48 mt-1">
-                                "Notion refused this connection. Reconnect to resume syncing."
-                            </div>
-                        </Show>
-                    </div>
-                </For>
-            </div>
-
-            <Show when=move || broken.get()>
-                <div class="mt-4">
-                    <ServerLink
-                        href="/notion/connect"
-                        label="Reconnect Notion"
-                        testid="reconnect-notion"
-                        button=true
-                        class="w-full h-12 inline-flex items-center justify-center rounded-full
-                               bg-canvas border border-hairline text-action text-body no-underline"
-                    />
-                </div>
-            </Show>
-        </Show>
     }
 }
 
@@ -446,7 +410,32 @@ fn LinkList(
                         let url = Signal::derive(move || {
                             format!("{}{}", base.get().trim_end_matches('/'), uri)
                         });
-                        view! { <CopyRow label=l.name.clone() value=url testid="link-url"/> }
+                        let notion = l.notion_url.clone();
+                        let has_notion = !notion.is_empty();
+                        view! {
+                            <div>
+                                <CopyRow label=l.name.clone() value=url testid="link-url"/>
+                                <Show when=move || has_notion>
+                                    // Opens in Notion. `rel="external"` is not
+                                    // needed -- the router only intercepts
+                                    // same-origin anchors -- but target and rel
+                                    // are: without `noopener` the opened page
+                                    // gets a handle back to this one.
+                                    <a
+                                        href=notion.clone()
+                                        target="_blank"
+                                        rel="noopener noreferrer"
+                                        data-testid="open-in-notion"
+                                        class="px-4 pb-3 -mt-1 inline-flex items-center gap-1
+                                               text-caption text-action no-underline h-11"
+                                    >
+                                        <span class="material-symbols-outlined text-[16px]"
+                                              aria-hidden="true">"open_in_new"</span>
+                                        "Open in Notion"
+                                    </a>
+                                </Show>
+                            </div>
+                        }
                     }
                 </For>
             </div>

@@ -23,6 +23,9 @@ pub struct CalendarLink {
     /// The collection path. Shown to the user as a full URL, because some
     /// clients cannot discover a calendar and have to be handed one.
     pub calendar_uri: String,
+    /// The Notion database this calendar is bound to, for the link that
+    /// opens it. `None` only for links made before duplication existed.
+    pub notion_database_id: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -73,6 +76,8 @@ impl Db {
             include_str!("../migrations/0004_logout.sql"),
             "\n",
             include_str!("../migrations/0005_duplicated.sql"),
+            "\n",
+            include_str!("../migrations/0006_cleanup.sql"),
         ))
         .execute(&mut *tx)
         .await?;
@@ -276,7 +281,7 @@ impl Db {
 
     pub async fn links(&self, account_id: i64) -> Result<Vec<CalendarLink>> {
         let rows = sqlx::query(
-            "SELECT id, display_name, caldav_calendar_uri
+            "SELECT id, display_name, caldav_calendar_uri, notion_database_id
              FROM calendar_link WHERE account_id = $1 ORDER BY created_at",
         )
         .bind(account_id)
@@ -288,6 +293,7 @@ impl Db {
                 id: r.get("id"),
                 display_name: r.get("display_name"),
                 calendar_uri: r.get("caldav_calendar_uri"),
+                notion_database_id: r.get("notion_database_id"),
             })
             .collect())
     }
