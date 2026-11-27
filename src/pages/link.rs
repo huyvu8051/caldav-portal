@@ -277,10 +277,13 @@ pub fn LinkPicker() -> impl IntoView {
                         <p class="text-body text-ink-48 mb-6">
                             "Connect a Notion workspace first."
                         </p>
-                        <A href="/me" attr:role="button"
+                        // Forward, not Back. Someone who reached this page
+                        // wants a calendar; sending them to /me to find the
+                        // same button again is a lap of the building.
+                        <A href="/connect" attr:role="button"
                            attr:class="w-full h-12 inline-flex items-center justify-center rounded-full
-                                       bg-canvas border border-hairline text-action text-body no-underline">
-                            "Back"
+                                       bg-action text-canvas text-body font-semibold no-underline">
+                            "Connect Notion"
                         </A>
                     }.into_any(),
                     Ok(Some(c)) => view! { <PageList choices=c link=link/> }.into_any(),

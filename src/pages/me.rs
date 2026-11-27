@@ -340,10 +340,19 @@ fn CredentialCard(
         </div>
 
         <h2 class="text-tagline font-semibold mt-10 mb-2">"Calendars"</h2>
-        <LinkList links=Signal::derive(move || credentials.get().links)
-                  base=Signal::derive(move || credentials.get().server)/>
+        <LinkList
+            links=Signal::derive(move || credentials.get().links)
+            base=Signal::derive(move || credentials.get().server)
+            // The one button on this page goes wherever the next step
+            // actually is. It used to be two -- "Add a calendar" beside
+            // "Connect Notion" -- which put the prerequisite next to the goal
+            // and made the reader choose between them. notion-caldav-saas has
+            // one button, "Connect another database", and is right.
+            needs_notion=Signal::derive(move || {
+                !credentials.get().workspaces.iter().any(|w| !w.needs_reconnect)
+            })
+        />
 
-        <h2 class="text-tagline font-semibold mt-10 mb-2">"Notion"</h2>
         <NotionSection workspaces=Signal::derive(move || credentials.get().workspaces)/>
 
         <div class="mt-8">
@@ -357,32 +366,29 @@ fn CredentialCard(
     }
 }
 
+/// Which Notion workspaces are connected, and whether any has stopped
+/// working.
+///
+/// Status, not a call to action. Its connect button used to sit here beside
+/// the one on the calendar list, which read as two equal choices when only
+/// one of them is ever what someone came to do. The only button left is the
+/// repair, and it appears only when something is broken.
 #[component]
 fn NotionSection(#[prop(into)] workspaces: Signal<Vec<Workspace>>) -> impl IntoView {
+    let broken = Signal::derive(move || workspaces.get().iter().any(|w| w.needs_reconnect));
     view! {
-        <Show
-            when=move || !workspaces.get().is_empty()
-            fallback=|| {
-                view! {
-                    <p class="text-body text-ink-48 mb-4">
-                        "No workspace connected yet."
-                    </p>
-                    <ConnectButton label="Connect Notion"/>
-                }
-            }
-        >
-            <div class="rounded-lg bg-canvas border border-hairline divide-y divide-divider-soft mb-4">
-                <For
-                    each=move || workspaces.get()
-                    key=|w| (w.id, w.needs_reconnect)
-                    let:w
-                >
+        <Show when=move || !workspaces.get().is_empty()>
+            <h2 class="text-tagline font-semibold mt-10 mb-2">"Notion"</h2>
+            <div class="rounded-lg bg-canvas border border-hairline divide-y divide-divider-soft">
+                <For each=move || workspaces.get() key=|w| (w.id, w.needs_reconnect) let:w>
                     <div class="px-4 py-3">
-                        <div data-testid="workspace" class="text-body break-all">{w.name.clone()}</div>
+                        <div data-testid="workspace" class="text-body break-all">
+                            {w.name.clone()}
+                        </div>
                         <Show when=move || w.needs_reconnect>
-                            // Said plainly, not as a warning icon: the whole
-                            // point is that the person finds out here rather
-                            // than from a calendar that quietly stopped.
+                            // Said plainly, not as a warning glyph: the point
+                            // is that someone finds out here rather than from
+                            // a calendar that quietly stopped.
                             <div data-testid="needs-reconnect" class="text-fine text-ink-48 mt-1">
                                 "Notion refused this connection. Reconnect to resume syncing."
                             </div>
@@ -390,28 +396,21 @@ fn NotionSection(#[prop(into)] workspaces: Signal<Vec<Workspace>>) -> impl IntoV
                     </div>
                 </For>
             </div>
-            <ConnectButton label="Connect another workspace"/>
-        </Show>
-    }
-}
 
-#[component]
-fn ConnectButton(#[prop(into)] label: String) -> impl IntoView {
-    // A link, not a button with an Action: the flow is a full-page redirect
-    // to Notion, so there is no in-flight state for a spinner to describe.
-    view! {
-        // To the explanation, not straight to Notion. Notion's picker lists
-        // pages and databases and cannot be filtered, so the only place to
-        // say which one works is before the redirect.
-        <A
-            href="/connect"
-            attr:data-testid="connect-notion"
-            attr:role="button"
-            attr:class="w-full h-12 inline-flex items-center justify-center rounded-full
-                        bg-canvas border border-hairline text-action text-body no-underline"
-        >
-            {label}
-        </A>
+            <Show when=move || broken.get()>
+                <div class="mt-4">
+                    <A
+                        href="/connect"
+                        attr:data-testid="reconnect-notion"
+                        attr:role="button"
+                        attr:class="w-full h-12 inline-flex items-center justify-center rounded-full
+                                    bg-canvas border border-hairline text-action text-body no-underline"
+                    >
+                        "Reconnect Notion"
+                    </A>
+                </div>
+            </Show>
+        </Show>
     }
 }
 
@@ -422,12 +421,22 @@ fn LinkList(
     /// path is not something anyone can paste into a calendar client.
     #[prop(into)]
     base: Signal<String>,
+    /// `true` when no healthy Notion connection exists, so the one button on
+    /// this page has to go through connecting first.
+    #[prop(into)]
+    needs_notion: Signal<bool>,
 ) -> impl IntoView {
     view! {
         <Show
             when=move || !links.get().is_empty()
-            fallback=|| view! {
-                <p class="text-body text-ink-48 mb-4">"No calendars yet."</p>
+            fallback=move || view! {
+                <p class="text-body text-ink-48 mb-4">
+                    {move || if needs_notion.get() {
+                        "No calendars yet. Connect Notion to get started."
+                    } else {
+                        "No calendars yet."
+                    }}
+                </p>
             }
         >
             <div class="rounded-lg bg-canvas border border-hairline divide-y divide-divider-soft mb-4">
@@ -447,11 +456,11 @@ fn LinkList(
             </div>
         </Show>
         <A
-            href="/add"
+            href=move || if needs_notion.get() { "/connect".to_string() } else { "/add".to_string() }
             attr:data-testid="add-calendar"
             attr:role="button"
             attr:class="w-full h-12 inline-flex items-center justify-center rounded-full
-                        bg-canvas border border-hairline text-action text-body no-underline"
+                        bg-action text-canvas text-body font-semibold no-underline"
         >
             "Add a calendar"
         </A>
