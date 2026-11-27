@@ -1,0 +1,93 @@
+[package]
+name = "caldav-portal"
+version = "0.1.0"
+edition = "2021"
+description = "Account portal for the caldav-rs + notion-bridge stack"
+license = "MIT OR Apache-2.0"
+
+# cdylib for the wasm bundle, rlib so the binary and the tests can link the
+# same code. One crate, two targets, which is what lets a component be
+# rendered on the server and hydrated in the browser without being written
+# twice.
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+leptos = { version = "0.8", default-features = false }
+leptos_router = { version = "0.8", default-features = false }
+leptos_meta = "0.8"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+# ssr-only
+anyhow = { version = "1", optional = true }
+sqlx = { version = "0.8", default-features = false, features = ["runtime-tokio", "tls-rustls", "postgres", "chrono", "macros"], optional = true }
+chrono = { version = "0.4", features = ["serde"], optional = true }
+# openidconnect directly rather than axum-oidc. notion-caldav-saas uses
+# `axum-oidc = "=1.0.0-dev-2"` plus a git-pinned tower-sessions store, and the
+# comment beside that pin explains it exists to dodge two incompatible
+# SessionStore definitions. Copying a pinned pre-release into a new repo
+# copies the fragility with it; the code it saves here is the authorize
+# redirect and one token exchange.
+openidconnect = { version = "4", default-features = false, features = ["reqwest", "rustls-tls"], optional = true }
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "json"], optional = true }
+axum-extra = { version = "0.10", features = ["cookie"], optional = true }
+rand = { version = "0.9", optional = true }
+tokio = { version = "1", features = ["full"], optional = true }
+axum = { version = "0.8", optional = true }
+tower-http = { version = "0.6", features = ["fs"], optional = true }
+tracing = { version = "0.1", optional = true }
+tracing-subscriber = { version = "0.3", features = ["env-filter"], optional = true }
+leptos_axum = { version = "0.8", optional = true }
+any_spawner = { version = "0.3", optional = true }
+
+# hydrate-only
+# Pinned exactly, not "0.2". wasm-bindgen's generated glue and its CLI share
+# an unstable schema and refuse to work unless the versions match to the
+# patch: a lockfile drifting to 0.2.130 against a 0.2.129 CLI fails the build
+# with "rust Wasm file schema version / this binary schema version". The
+# Dockerfile installs the CLI at this same version, and webcaldav pins its
+# CLI here too -- so the number appears in two places on purpose and they
+# have to be changed together.
+wasm-bindgen = { version = "=0.2.129", optional = true }
+console_error_panic_hook = { version = "0.1", optional = true }
+
+[features]
+ssr = [
+    "dep:anyhow",
+    "dep:tokio",
+    "dep:axum",
+    "dep:tower-http",
+    "dep:tracing",
+    "dep:tracing-subscriber",
+    "dep:leptos_axum",
+    "dep:any_spawner",
+    "dep:sqlx",
+    "dep:chrono",
+    "dep:openidconnect",
+    "dep:reqwest",
+    "dep:axum-extra",
+    "dep:rand",
+    "leptos/ssr",
+    "leptos_router/ssr",
+    "leptos_meta/ssr",
+]
+hydrate = [
+    "dep:wasm-bindgen",
+    "dep:console_error_panic_hook",
+    "leptos/hydrate",
+]
+
+[package.metadata.leptos]
+output-name = "caldav-portal"
+site-root = "target/site"
+site-pkg-dir = "pkg"
+# 8091, not webcaldav's 8090: both get run at once while this is built
+# against that one as the design reference.
+site-addr = "127.0.0.1:8091"
+reload-port = 3013
+bin-features = ["ssr"]
+bin-default-features = false
+lib-features = ["hydrate"]
+lib-default-features = false
+hash-files = true

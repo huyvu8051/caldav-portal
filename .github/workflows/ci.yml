@@ -1,0 +1,69 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  test:
+    name: Test
+    runs-on: ubuntu-latest
+    services:
+      # The db tests take a schema each and run against a real Postgres. A
+      # faked pool would not test the thing they are about -- `WHERE
+      # caldav_username IS NULL` only means anything if a database enforces it.
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_PASSWORD: test
+          POSTGRES_DB: caldav_portal
+        options: >-
+          --health-cmd pg_isready --health-interval 5s
+          --health-timeout 5s --health-retries 10
+        ports: ["5432:5432"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      # Three gates, in the order CI runs them, because running the later ones
+      # locally and skipping the first is how two builds in a row were spent
+      # on a formatting diff.
+      - run: cargo fmt --check
+      - run: cargo clippy --all-targets --no-default-features --features ssr -- -D warnings
+      - name: cargo test
+        env:
+          DATABASE_URL: postgres://postgres:test@127.0.0.1:5432/caldav_portal
+        run: cargo test --no-default-features --features ssr
+      # The wasm half is not exercised by any of the above, and a lib that
+      # stops compiling for the browser is a page that renders and then never
+      # becomes interactive -- which looks like working software.
+      - run: rustup target add wasm32-unknown-unknown
+      - run: cargo build --lib --target wasm32-unknown-unknown --no-default-features --features hydrate
+
+  image:
+    name: Build & Push
+    needs: test
+    if: (github.event_name == 'push' && github.ref == 'refs/heads/main') || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    permissions:
+      packages: write
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ./Dockerfile
+          push: true
+          tags: ghcr.io/huyvu8051/caldav-portal:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
